@@ -58,4 +58,14 @@ export const addItemStyles = StyleSheet.create({
     borderRadius: radius.md,
   },
   doneIOSText: { color: "#fff", fontWeight: "700" },
+  scanBtn: {
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
+    borderRadius: radius.md,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  scanBtnText: { color: colors.primary, fontWeight: "700", fontSize: 14 },
 });

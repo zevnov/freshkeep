@@ -13,7 +13,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 export default function AddItemScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, scan_at, scan_name, scan_qty, scan_unit, scan_notes, scan_code } = useLocalSearchParams<{
+    id?: string;
+    scan_at?: string;
+    scan_name?: string;
+    scan_qty?: string;
+    scan_unit?: string;
+    scan_notes?: string;
+    scan_code?: string;
+  }>();
   const navigation = useNavigation();
   const { profile } = useAuth();
   const { items, createItem, updateItem, loading: itemsLoading } = useItems();
@@ -40,6 +48,7 @@ export default function AddItemScreen() {
   const [showExpiryPicker, setShowExpiryPicker] = useState(false);
   const [showRefPicker, setShowRefPicker] = useState(false);
   const [saving, setSaving] = useState(false);
+  const appliedScanAtRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (existing) {
@@ -55,6 +64,32 @@ export default function AddItemScreen() {
       setNotes(existing.notes ?? "");
     }
   }, [existing]);
+
+  useEffect(() => {
+    if (!scan_at || scan_at === appliedScanAtRef.current) return;
+    appliedScanAtRef.current = scan_at;
+
+    const scannedName = typeof scan_name === "string" ? scan_name.trim() : "";
+    const scannedQty = typeof scan_qty === "string" ? scan_qty.trim() : "";
+    const scannedUnit = typeof scan_unit === "string" ? scan_unit.trim() : "";
+    const scannedNotes = typeof scan_notes === "string" ? scan_notes.trim() : "";
+    const scannedCode = typeof scan_code === "string" ? scan_code.trim() : "";
+
+    if (scannedName) setName(scannedName);
+    if (scannedQty && !Number.isNaN(Number(scannedQty))) setQuantity(scannedQty);
+    if (scannedUnit) setUnit(scannedUnit);
+    if (scannedNotes) setNotes((prev) => (prev.trim() ? `${prev}\n${scannedNotes}` : scannedNotes));
+    if (scannedCode) setNotes((prev) => (prev.includes(`Barcode: ${scannedCode}`) ? prev : `${prev}\nBarcode: ${scannedCode}`.trim()));
+
+    router.setParams({
+      scan_at: undefined,
+      scan_name: undefined,
+      scan_qty: undefined,
+      scan_unit: undefined,
+      scan_notes: undefined,
+      scan_code: undefined,
+    });
+  }, [scan_at, scan_name, scan_qty, scan_unit, scan_notes, scan_code]);
 
   const spoilOnYmd = useMemo(() => {
     if (spoilMode === "expiry") return toLocalDateString(expiryDate);
@@ -180,6 +215,14 @@ export default function AddItemScreen() {
         placeholder="Strawberries"
         placeholderTextColor={colors.textMuted}
       />
+      {!id ? (
+        <Pressable
+          style={styles.scanBtn}
+          onPress={() => router.push({ pathname: "/scan-barcode", params: { returnTo: "add-item" } })}
+        >
+          <Text style={styles.scanBtnText}>Scan barcode to auto-fill</Text>
+        </Pressable>
+      ) : null}
 
       <BucketPicker scope={scope} onChange={setScope} />
       <StoragePicker storage={storage} onChange={setStorage} />

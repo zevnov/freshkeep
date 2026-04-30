@@ -2,7 +2,9 @@ import { BandBadge } from "@/components/BandBadge";
 import { ScopePill } from "@/components/ScopePill";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
-import { colors, radius, spacing } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/constants/theme";
+import { radius, spacing } from "@/constants/theme";
 import {
   computeFreshnessBand,
   daysUntilSpoil,
@@ -11,14 +13,73 @@ import {
   toLocalDateString,
 } from "@/lib/spoil";
 import { router, useLocalSearchParams, Redirect } from "expo-router";
+import { useMemo } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colors.bg },
+    content: { padding: spacing.lg, paddingBottom: spacing.xl * 2, gap: spacing.md },
+    center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg, padding: spacing.lg, gap: spacing.md },
+    missing: { fontSize: 16, color: colors.textMuted, textAlign: "center" },
+    header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md },
+    title: { flex: 1, fontSize: 24, fontWeight: "700", color: colors.text },
+    row: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
+    privacy: { fontSize: 13, color: colors.textMuted },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.sm,
+    },
+    rowItem: { gap: 4 },
+    rowLabel: { fontSize: 13, color: colors.textMuted, fontWeight: "600" },
+    rowValue: { fontSize: 16, color: colors.text },
+    actions: { gap: spacing.sm, marginTop: spacing.md },
+    primaryBtn: {
+      backgroundColor: colors.primary,
+      paddingVertical: 14,
+      borderRadius: radius.md,
+      alignItems: "center",
+    },
+    primaryBtnText: { color: colors.onPrimary, fontWeight: "700", fontSize: 16 },
+    secondaryBtn: {
+      backgroundColor: colors.surface,
+      paddingVertical: 14,
+      borderRadius: radius.md,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    secondaryBtnText: { color: colors.text, fontWeight: "600", fontSize: 16 },
+    dangerBtn: {
+      paddingVertical: 14,
+      borderRadius: radius.md,
+      alignItems: "center",
+    },
+    dangerBtnText: { color: colors.danger, fontWeight: "700", fontSize: 16 },
+  });
+}
+
 export default function ItemDetailScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user, profile } = useAuth();
   const { items, updateItem, loading } = useItems();
 
   const item = items.find((i) => i.id === id);
+
+  function Row({ label, value }: { label: string; value: string }) {
+    return (
+      <View style={styles.rowItem}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={styles.rowValue}>{value}</Text>
+      </View>
+    );
+  }
 
   if (!user) {
     return <Redirect href="/(auth)/login" />;
@@ -116,57 +177,3 @@ export default function ItemDetailScreen() {
     </ScrollView>
   );
 }
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.rowItem}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, paddingBottom: spacing.xl * 2, gap: spacing.md },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg, padding: spacing.lg, gap: spacing.md },
-  missing: { fontSize: 16, color: colors.textMuted, textAlign: "center" },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md },
-  title: { flex: 1, fontSize: 24, fontWeight: "700", color: colors.text },
-  row: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
-  privacy: { fontSize: 13, color: colors.textMuted },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.sm,
-  },
-  rowItem: { gap: 4 },
-  rowLabel: { fontSize: 13, color: colors.textMuted, fontWeight: "600" },
-  rowValue: { fontSize: 16, color: colors.text },
-  actions: { gap: spacing.sm, marginTop: spacing.md },
-  primaryBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: "center",
-  },
-  primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  secondaryBtn: {
-    backgroundColor: colors.surface,
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  secondaryBtnText: { color: colors.text, fontWeight: "600", fontSize: 16 },
-  dangerBtn: {
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: "center",
-  },
-  dangerBtnText: { color: colors.danger, fontWeight: "700", fontSize: 16 },
-});

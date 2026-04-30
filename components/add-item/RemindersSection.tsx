@@ -1,6 +1,6 @@
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
 import { Switch, Text, TextInput, View } from "react-native";
-import { addItemStyles as styles } from "./styles";
+import { useAddItemStyles } from "./styles";
 
 type Props = {
   remindMe: boolean;
@@ -10,6 +10,9 @@ type Props = {
 };
 
 export function RemindersSection({ remindMe, onRemindMeChange, remindDays, onRemindDaysChange }: Props) {
+  const styles = useAddItemStyles();
+  const { colors } = useTheme();
+
   return (
     <>
       <View style={styles.rowBetween}>

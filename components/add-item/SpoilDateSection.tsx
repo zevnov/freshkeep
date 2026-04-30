@@ -1,8 +1,8 @@
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
 import { toLocalDateString } from "@/lib/spoil";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Platform, Pressable, Text, TextInput, View } from "react-native";
-import { addItemStyles as styles } from "./styles";
+import { useAddItemStyles } from "./styles";
 
 type SpoilMode = "expiry" | "shelf";
 
@@ -37,6 +37,10 @@ export function SpoilDateSection({
   onShelfDaysChange,
   spoilOnYmd,
 }: Props) {
+  const styles = useAddItemStyles();
+  const { colors, isDark } = useTheme();
+  const pickerTheme = isDark ? "dark" : "light";
+
   return (
     <>
       <Text style={styles.label}>Spoil date</Text>
@@ -66,6 +70,7 @@ export function SpoilDateSection({
                 value={expiryDate}
                 mode="date"
                 display={Platform.OS === "ios" ? "spinner" : "default"}
+                themeVariant={pickerTheme}
                 onChange={(_, d) => {
                   if (Platform.OS === "android") onShowExpiryPicker(false);
                   if (d) onExpiryDateChange(d);
@@ -91,6 +96,7 @@ export function SpoilDateSection({
                 value={referenceDate}
                 mode="date"
                 display={Platform.OS === "ios" ? "spinner" : "default"}
+                themeVariant={pickerTheme}
                 onChange={(_, d) => {
                   if (Platform.OS === "android") onShowRefPicker(false);
                   if (d) onReferenceDateChange(d);

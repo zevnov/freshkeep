@@ -1,16 +1,18 @@
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
+import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/constants/theme";
+import { radius, spacing } from "@/constants/theme";
 import {
   getExpoNotificationPermissionsAsync,
   nativeNotificationsSupported,
   requestExpoNotificationPermissionsAsync,
   rescheduleAllItems,
 } from "@/lib/notifications";
-import { colors, radius, spacing } from "@/constants/theme";
 import type { NotificationStyle } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Redirect, router } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 
 function formatDigestTime(hour: number, minute: number): string {
@@ -19,7 +21,105 @@ function formatDigestTime(hour: number, minute: number): string {
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colors.bg },
+    content: { padding: spacing.lg, paddingBottom: spacing.xl * 2, gap: spacing.md },
+    section: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: colors.textMuted,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      marginTop: spacing.sm,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.sm,
+    },
+    expoGoNote: {
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.today,
+      marginBottom: spacing.xs,
+    },
+    mono: { fontFamily: "Menlo", fontSize: 12, color: colors.text },
+    rowLabel: { fontSize: 16, color: colors.text, fontWeight: "600" },
+    rowValue: { fontSize: 15, color: colors.textMuted },
+    rowMuted: { fontSize: 14, color: colors.textMuted },
+    rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+    caption: { fontSize: 13, lineHeight: 18, color: colors.textMuted, marginTop: 4 },
+    subLabel: {
+      marginTop: spacing.md,
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.textMuted,
+      textTransform: "uppercase",
+      letterSpacing: 0.4,
+    },
+    styleRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs, flexWrap: "wrap" },
+    styleChip: {
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    styleChipOn: { backgroundColor: colors.primaryMuted, borderColor: colors.primary },
+    styleChipText: { fontSize: 14, fontWeight: "600", color: colors.textMuted },
+    styleChipTextOn: { color: colors.primary },
+    digestTimeBlock: { marginTop: spacing.sm, gap: spacing.xs },
+    timeButton: {
+      alignSelf: "flex-start",
+      marginTop: 4,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 12,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    timeButtonText: { fontSize: 17, fontWeight: "600", color: colors.text },
+    doneIOS: {
+      alignSelf: "flex-start",
+      marginTop: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 8,
+      backgroundColor: colors.primary,
+      borderRadius: radius.md,
+    },
+    doneIOSText: { color: colors.onPrimary, fontWeight: "700" },
+    linkCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    linkTitle: { fontSize: 16, fontWeight: "600", color: colors.primary },
+    linkSub: { fontSize: 14, color: colors.textMuted, marginTop: 4 },
+    signOut: {
+      marginTop: spacing.lg,
+      paddingVertical: spacing.md,
+      alignItems: "center",
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    signOutText: { color: colors.danger, fontWeight: "600", fontSize: 16 },
+  });
+}
+
 export default function SettingsScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const pickerTheme = isDark ? "dark" : "light";
   const { configured, user, profile, signOut, updateNotificationPrefs } = useAuth();
   const { items, refresh } = useItems();
   const [busy, setBusy] = useState(false);
@@ -136,6 +236,7 @@ export default function SettingsScreen() {
                   })()}
                   mode="time"
                   display={Platform.OS === "ios" ? "spinner" : "default"}
+                  themeVariant={pickerTheme}
                   onChange={(_, d) => {
                     if (Platform.OS === "android") setShowDigestTime(false);
                     if (d) void toggle({ digestHour: d.getHours(), digestMinute: d.getMinutes() });
@@ -214,96 +315,3 @@ export default function SettingsScreen() {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, paddingBottom: spacing.xl * 2, gap: spacing.md },
-  section: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginTop: spacing.sm,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.sm,
-  },
-  expoGoNote: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.today,
-    marginBottom: spacing.xs,
-  },
-  mono: { fontFamily: "Menlo", fontSize: 12, color: colors.text },
-  rowLabel: { fontSize: 16, color: colors.text, fontWeight: "600" },
-  rowValue: { fontSize: 15, color: colors.textMuted },
-  rowMuted: { fontSize: 14, color: colors.textMuted },
-  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
-  caption: { fontSize: 13, lineHeight: 18, color: colors.textMuted, marginTop: 4 },
-  subLabel: {
-    marginTop: spacing.md,
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  styleRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs, flexWrap: "wrap" },
-  styleChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  styleChipOn: { backgroundColor: colors.primaryMuted, borderColor: colors.primary },
-  styleChipText: { fontSize: 14, fontWeight: "600", color: colors.textMuted },
-  styleChipTextOn: { color: colors.primary },
-  digestTimeBlock: { marginTop: spacing.sm, gap: spacing.xs },
-  timeButton: {
-    alignSelf: "flex-start",
-    marginTop: 4,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  timeButtonText: { fontSize: 17, fontWeight: "600", color: colors.text },
-  doneIOS: {
-    alignSelf: "flex-start",
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-  },
-  doneIOSText: { color: "#fff", fontWeight: "700" },
-  linkCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  linkTitle: { fontSize: 16, fontWeight: "600", color: colors.primary },
-  linkSub: { fontSize: 14, color: colors.textMuted, marginTop: 4 },
-  signOut: {
-    marginTop: spacing.lg,
-    paddingVertical: spacing.md,
-    alignItems: "center",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  signOutText: { color: colors.danger, fontWeight: "600", fontSize: 16 },
-});

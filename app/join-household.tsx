@@ -1,9 +1,11 @@
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
-import { colors, radius, spacing } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/constants/theme";
+import { radius, spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -29,7 +31,42 @@ function joinErrorMessage(code: string | undefined): string {
   }
 }
 
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    flex: { flex: 1, backgroundColor: colors.bg },
+    container: { flex: 1, padding: spacing.lg, gap: spacing.md },
+    lead: { fontSize: 16, lineHeight: 24, color: colors.textMuted },
+    note: { fontSize: 14, lineHeight: 20, color: colors.textMuted, paddingVertical: 4, paddingHorizontal: 2 },
+    label: { fontSize: 14, fontWeight: "600", color: colors.textMuted },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 14,
+      fontSize: 18,
+      letterSpacing: 2,
+      fontWeight: "600",
+      color: colors.text,
+      backgroundColor: colors.surface,
+    },
+    button: {
+      marginTop: spacing.md,
+      backgroundColor: colors.primary,
+      paddingVertical: 14,
+      borderRadius: radius.md,
+      alignItems: "center",
+    },
+    buttonDisabled: { opacity: 0.7 },
+    buttonText: { color: colors.onPrimary, fontWeight: "700", fontSize: 16 },
+    cancel: { alignItems: "center", paddingVertical: spacing.md },
+    cancelText: { color: colors.textMuted, fontSize: 16 },
+  });
+}
+
 export default function JoinHouseholdScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { refreshProfile } = useAuth();
   const { refresh: refreshItems } = useItems();
   const [code, setCode] = useState("");
@@ -89,7 +126,7 @@ export default function JoinHouseholdScreen() {
           placeholderTextColor={colors.textMuted}
         />
         <Pressable style={[styles.button, busy && styles.buttonDisabled]} onPress={() => void onJoin()} disabled={busy}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Join household</Text>}
+          {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.buttonText}>Join household</Text>}
         </Pressable>
         <Pressable style={styles.cancel} onPress={() => router.back()} disabled={busy}>
           <Text style={styles.cancelText}>Cancel</Text>
@@ -98,34 +135,3 @@ export default function JoinHouseholdScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.bg },
-  container: { flex: 1, padding: spacing.lg, gap: spacing.md },
-  lead: { fontSize: 16, lineHeight: 24, color: colors.textMuted },
-  note: { fontSize: 14, lineHeight: 20, color: colors.textMuted, paddingVertical: 4, paddingHorizontal: 2 },
-  label: { fontSize: 14, fontWeight: "600", color: colors.textMuted },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 14,
-    fontSize: 18,
-    letterSpacing: 2,
-    fontWeight: "600",
-    color: colors.text,
-    backgroundColor: colors.surface,
-  },
-  button: {
-    marginTop: spacing.md,
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  cancel: { alignItems: "center", paddingVertical: spacing.md },
-  cancelText: { color: colors.textMuted, fontSize: 16 },
-});

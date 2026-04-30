@@ -2,21 +2,18 @@ import "react-native-gesture-handler";
 
 import { AuthProvider } from "@/context/AuthContext";
 import { ItemsProvider } from "@/context/ItemsContext";
-import { colors } from "@/constants/theme";
+import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { ensureNotificationChannel } from "@/lib/notifications";
 import { Stack } from "expo-router";
 import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 
-export default function RootLayout() {
-  useEffect(() => {
-    void ensureNotificationChannel();
-  }, []);
+function RootStack() {
+  const { colors, isDark } = useTheme();
 
   return (
-    <AuthProvider>
-      <ItemsProvider>
-      <StatusBar style="dark" />
+    <>
+      <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{
           headerTintColor: colors.primary,
@@ -30,10 +27,26 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="add-item" options={{ title: "Add item", presentation: "modal" }} />
+        <Stack.Screen name="scan-barcode" options={{ title: "Scan barcode", presentation: "fullScreenModal" }} />
         <Stack.Screen name="join-household" options={{ title: "Join household", presentation: "modal" }} />
         <Stack.Screen name="item/[id]" options={{ title: "Item" }} />
       </Stack>
-      </ItemsProvider>
-    </AuthProvider>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  useEffect(() => {
+    void ensureNotificationChannel();
+  }, []);
+
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <ItemsProvider>
+          <RootStack />
+        </ItemsProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

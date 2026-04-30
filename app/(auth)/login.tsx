@@ -1,7 +1,9 @@
 import { useAuth } from "@/context/AuthContext";
-import { colors, radius, spacing } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/constants/theme";
+import { radius, spacing } from "@/constants/theme";
 import { Link, Redirect } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +16,55 @@ import {
   View,
 } from "react-native";
 
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    flex: { flex: 1, backgroundColor: colors.bg },
+    center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
+    container: {
+      flex: 1,
+      padding: spacing.lg,
+      paddingTop: spacing.xl,
+      gap: spacing.sm,
+    },
+    lead: {
+      fontSize: 18,
+      color: colors.text,
+      marginBottom: spacing.md,
+      lineHeight: 26,
+    },
+    label: {
+      marginTop: spacing.sm,
+      fontSize: 14,
+      fontWeight: "600",
+      color: colors.textMuted,
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 12,
+      fontSize: 16,
+      color: colors.text,
+      backgroundColor: colors.surface,
+    },
+    button: {
+      marginTop: spacing.lg,
+      backgroundColor: colors.primary,
+      paddingVertical: 14,
+      borderRadius: radius.md,
+      alignItems: "center",
+    },
+    buttonDisabled: { opacity: 0.6 },
+    buttonText: { color: colors.onPrimary, fontSize: 16, fontWeight: "600" },
+    linkWrap: { marginTop: spacing.md, alignItems: "center" },
+    link: { color: colors.primary, fontSize: 15 },
+  });
+}
+
 export default function LoginScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { configured, user, loading, signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -85,47 +135,3 @@ export default function LoginScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.bg },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
-  container: {
-    flex: 1,
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
-    gap: spacing.sm,
-  },
-  lead: {
-    fontSize: 18,
-    color: colors.text,
-    marginBottom: spacing.md,
-    lineHeight: 26,
-  },
-  label: {
-    marginTop: spacing.sm,
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.textMuted,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-    backgroundColor: colors.surface,
-  },
-  button: {
-    marginTop: spacing.lg,
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  linkWrap: { marginTop: spacing.md, alignItems: "center" },
-  link: { color: colors.primary, fontSize: 15 },
-});

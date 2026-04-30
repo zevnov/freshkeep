@@ -27,6 +27,12 @@
     "plugins": [
       "expo-router",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Freshkeep to use your camera to scan barcodes."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "sounds": []

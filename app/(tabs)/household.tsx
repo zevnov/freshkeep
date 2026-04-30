@@ -1,5 +1,7 @@
 import { useAuth } from "@/context/AuthContext";
-import { colors, radius, spacing } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/constants/theme";
+import { radius, spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import {
   parseHouseholdMemberRow,
@@ -9,8 +11,9 @@ import {
   type HouseholdRole,
 } from "@/lib/supabaseRows";
 import * as Clipboard from "expo-clipboard";
+import { useFocusEffect } from "@react-navigation/native";
 import { Redirect, router } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,7 +24,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
 
 type MemberRow = {
   user_id: string;
@@ -31,7 +33,70 @@ type MemberRow = {
 
 type InviteRow = { code: string; expires_at: string };
 
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colors.bg },
+    content: { padding: spacing.lg, paddingBottom: spacing.xl * 2, gap: spacing.md },
+    title: { fontSize: 26, fontWeight: "700", color: colors.text },
+    sub: { fontSize: 15, lineHeight: 22, color: colors.textMuted },
+    section: {
+      marginTop: spacing.md,
+      fontSize: 13,
+      fontWeight: "700",
+      color: colors.textMuted,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.sm,
+    },
+    memberRow: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs },
+    memberName: { fontSize: 16, fontWeight: "600", color: colors.text },
+    memberRole: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+    hint: { fontSize: 14, lineHeight: 20, color: colors.textMuted },
+    codeBox: {
+      alignItems: "center",
+      paddingVertical: spacing.lg,
+      borderRadius: radius.md,
+      backgroundColor: colors.primaryMuted,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    codeText: { fontSize: 28, fontWeight: "800", letterSpacing: 4, color: colors.text },
+    tapCopy: { marginTop: spacing.xs, fontSize: 13, color: colors.textMuted },
+    expires: { fontSize: 13, color: colors.textMuted, textAlign: "center" },
+    noCode: { fontSize: 14, color: colors.textMuted, textAlign: "center", paddingVertical: spacing.sm },
+    primaryBtn: {
+      marginTop: spacing.sm,
+      backgroundColor: colors.primary,
+      paddingVertical: 14,
+      borderRadius: radius.md,
+      alignItems: "center",
+    },
+    primaryBtnText: { color: colors.onPrimary, fontWeight: "700", fontSize: 16 },
+    btnDisabled: { opacity: 0.7 },
+    secondaryBtn: {
+      marginTop: spacing.md,
+      paddingVertical: 14,
+      borderRadius: radius.md,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    secondaryBtnText: { color: colors.primary, fontWeight: "700", fontSize: 16 },
+    joinFootnote: { fontSize: 13, lineHeight: 18, color: colors.textMuted, marginTop: spacing.xs },
+  });
+}
+
 export default function HouseholdScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { configured, user, profile } = useAuth();
   const [householdName, setHouseholdName] = useState<string | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
@@ -229,62 +294,3 @@ export default function HouseholdScreen() {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, paddingBottom: spacing.xl * 2, gap: spacing.md },
-  title: { fontSize: 26, fontWeight: "700", color: colors.text },
-  sub: { fontSize: 15, lineHeight: 22, color: colors.textMuted },
-  section: {
-    marginTop: spacing.md,
-    fontSize: 13,
-    fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.sm,
-  },
-  memberRow: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs },
-  memberName: { fontSize: 16, fontWeight: "600", color: colors.text },
-  memberRole: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
-  hint: { fontSize: 14, lineHeight: 20, color: colors.textMuted },
-  codeBox: {
-    alignItems: "center",
-    paddingVertical: spacing.lg,
-    borderRadius: radius.md,
-    backgroundColor: colors.primaryMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  codeText: { fontSize: 28, fontWeight: "800", letterSpacing: 4, color: colors.text },
-  tapCopy: { marginTop: spacing.xs, fontSize: 13, color: colors.textMuted },
-  expires: { fontSize: 13, color: colors.textMuted, textAlign: "center" },
-  noCode: { fontSize: 14, color: colors.textMuted, textAlign: "center", paddingVertical: spacing.sm },
-  primaryBtn: {
-    marginTop: spacing.sm,
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: "center",
-  },
-  primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  btnDisabled: { opacity: 0.7 },
-  secondaryBtn: {
-    marginTop: spacing.md,
-    paddingVertical: 14,
-    borderRadius: radius.md,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  secondaryBtnText: { color: colors.primary, fontWeight: "700", fontSize: 16 },
-  joinFootnote: { fontSize: 13, lineHeight: 18, color: colors.textMuted, marginTop: spacing.xs },
-});

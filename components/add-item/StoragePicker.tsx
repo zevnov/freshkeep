@@ -1,6 +1,6 @@
 import type { StoragePlace } from "@/types";
 import { Pressable, Text, View } from "react-native";
-import { addItemStyles as styles } from "./styles";
+import { useAddItemStyles } from "./styles";
 
 export const STORAGE_OPTIONS: StoragePlace[] = ["fridge", "freezer", "pantry", "counter"];
 
@@ -10,6 +10,7 @@ type Props = {
 };
 
 export function StoragePicker({ storage, onChange }: Props) {
+  const styles = useAddItemStyles();
   return (
     <>
       <Text style={styles.label}>Storage</Text>

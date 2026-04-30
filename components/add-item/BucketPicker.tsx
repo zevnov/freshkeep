@@ -1,6 +1,6 @@
 import type { ItemScope } from "@/types";
 import { Pressable, Text, View } from "react-native";
-import { addItemStyles as styles } from "./styles";
+import { useAddItemStyles } from "./styles";
 
 type Props = {
   scope: ItemScope;
@@ -8,6 +8,7 @@ type Props = {
 };
 
 export function BucketPicker({ scope, onChange }: Props) {
+  const styles = useAddItemStyles();
   return (
     <>
       <Text style={styles.label}>Bucket</Text>

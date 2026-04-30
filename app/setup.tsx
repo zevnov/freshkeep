@@ -1,7 +1,40 @@
-import { colors, spacing } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/constants/theme";
+import { spacing } from "@/constants/theme";
+import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg,
+      padding: spacing.lg,
+      paddingTop: spacing.xl * 2,
+      gap: spacing.md,
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    body: {
+      fontSize: 16,
+      lineHeight: 24,
+      color: colors.textMuted,
+    },
+    mono: {
+      fontFamily: "Menlo",
+      fontSize: 14,
+      color: colors.text,
+    },
+  });
+}
+
 export default function SetupScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Configure Supabase</Text>
@@ -17,28 +50,3 @@ export default function SetupScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    padding: spacing.lg,
-    paddingTop: spacing.xl * 2,
-    gap: spacing.md,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: colors.text,
-  },
-  body: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.textMuted,
-  },
-  mono: {
-    fontFamily: "Menlo",
-    fontSize: 14,
-    color: colors.text,
-  },
-});

@@ -1,10 +1,51 @@
 import { useAuth } from "@/context/AuthContext";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/constants/theme";
 import { Redirect } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    center: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.bg,
+      paddingHorizontal: 24,
+      gap: 16,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "center",
+    },
+    hint: {
+      fontSize: 15,
+      color: colors.textMuted,
+      textAlign: "center",
+      lineHeight: 22,
+    },
+    button: {
+      marginTop: 8,
+      backgroundColor: colors.primary,
+      paddingVertical: 14,
+      paddingHorizontal: 28,
+      borderRadius: 12,
+      minWidth: 160,
+      alignItems: "center",
+    },
+    buttonDisabled: { opacity: 0.7 },
+    buttonText: { color: colors.onPrimary, fontSize: 16, fontWeight: "600" },
+    link: { paddingVertical: 8 },
+    linkText: { color: colors.primary, fontSize: 16 },
+  });
+}
+
 export default function Index() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { configured, loading, user, profile, refreshProfile, signOut } = useAuth();
   const [retrying, setRetrying] = useState(false);
 
@@ -37,7 +78,7 @@ export default function Index() {
           }}
         >
           {retrying ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={colors.onPrimary} />
           ) : (
             <Text style={styles.buttonText}>Retry</Text>
           )}
@@ -55,39 +96,3 @@ export default function Index() {
 
   return <Redirect href="/(auth)/login" />;
 }
-
-const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.bg,
-    paddingHorizontal: 24,
-    gap: 16,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: colors.text,
-    textAlign: "center",
-  },
-  hint: {
-    fontSize: 15,
-    color: colors.textMuted,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  button: {
-    marginTop: 8,
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 12,
-    minWidth: 160,
-    alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  link: { paddingVertical: 8 },
-  linkText: { color: colors.primary, fontSize: 16 },
-});

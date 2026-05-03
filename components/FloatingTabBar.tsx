@@ -46,7 +46,7 @@ export function FloatingTabBar({
   state,
   navigation,
 }: BottomTabBarProps) {
-  const { colors, dark } = useTheme();
+  const { colors, isDark: dark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 

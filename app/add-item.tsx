@@ -12,8 +12,10 @@ import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
+const { lightColors, darkColors } = require("@/constants/theme");
+const { isDark } = useTheme();
+
 export default function AddItemScreen() {
-  const { colors } = useTheme();
   const styles = useAddItemStyles();
   const { id, scan_at, scan_name, scan_qty, scan_unit, scan_notes, scan_code } = useLocalSearchParams<{
     id?: string;
@@ -180,20 +182,20 @@ export default function AddItemScreen() {
       headerRight: () => (
         <Pressable onPress={() => void onSave()} disabled={saving} style={{ paddingHorizontal: 12 }}>
           {saving ? (
-            <ActivityIndicator color={colors.primary} />
+            <ActivityIndicator color={isDark ? darkColors.primary : lightColors.primary} />
           ) : (
-            <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 16 }}>Save</Text>
+            <Text style={{ color: isDark ? darkColors.primary : lightColors.primary, fontWeight: "700", fontSize: 16 }}>Save</Text>
           )}
         </Pressable>
       ),
     });
-  }, [navigation, id, saving, onSave, colors.primary]);
+  }, [navigation, id, saving, onSave, isDark]);
 
   if (id && !existing) {
     if (itemsLoading) {
       return (
         <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
+          <ActivityIndicator color={isDark ? darkColors.primary : lightColors.primary} />
         </View>
       );
     }
@@ -209,13 +211,15 @@ export default function AddItemScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <EditorialHeading>Item Details</EditorialHeading>
+
       <Text style={styles.label}>Name</Text>
       <TextInput
         style={styles.input}
         value={name}
         onChangeText={setName}
         placeholder="Strawberries"
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={isDark ? darkColors.textMuted : lightColors.textMuted}
       />
       {!id ? (
         <Pressable
@@ -251,7 +255,7 @@ export default function AddItemScreen() {
         value={quantity}
         onChangeText={setQuantity}
         placeholder="1"
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={isDark ? darkColors.textMuted : lightColors.textMuted}
       />
 
       <Text style={styles.label}>Unit (optional)</Text>
@@ -260,7 +264,7 @@ export default function AddItemScreen() {
         value={unit}
         onChangeText={setUnit}
         placeholder="lb, each, L"
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={isDark ? darkColors.textMuted : lightColors.textMuted}
       />
 
       <Text style={styles.label}>Notes (optional)</Text>
@@ -270,7 +274,7 @@ export default function AddItemScreen() {
         onChangeText={setNotes}
         multiline
         placeholder="Where in the fridge…"
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={isDark ? darkColors.textMuted : lightColors.textMuted}
       />
 
       <RemindersSection
@@ -282,3 +286,7 @@ export default function AddItemScreen() {
     </ScrollView>
   );
 }
+
+const EditorialHeading = ({ children }) => (
+  <Text style={{ fontFamily: "DM Sans", fontWeight: "700", fontSize: 24, marginBottom: 16 }}>{children}</Text>
+);

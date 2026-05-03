@@ -20,16 +20,19 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const system = useColorScheme();
   const [preference, setPreference] = useState<ThemePreference>('system');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadPreference = async () => {
-      try {
+  try {
         const storedPreference = await AsyncStorage.getItem('freshkeep-theme-pref');
         if (storedPreference) {
           setPreference(storedPreference as ThemePreference);
         }
       } catch (e) {
         console.error("Failed to load theme preference:", e);
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -60,6 +63,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       isDark,
     };
   }, [preference, colorScheme]);
+
+  if (isLoading) return null;
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

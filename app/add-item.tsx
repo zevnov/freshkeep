@@ -101,7 +101,7 @@ export default function AddItemScreen() {
 
   const onSave = useCallback(async () => {
     if (!name.trim()) {
-      Alert.alert("Name required", "Give this item a name.");
+      if (Platform.OS === 'web') window.alert("Give this item a name."); else Alert.alert("Name required", "Give this item a name.");
       return;
     }
     const q = quantity.trim() ? Number(quantity) : null;
@@ -140,7 +140,7 @@ export default function AddItemScreen() {
         schedule_version: scheduleVersion,
       });
       setSaving(false);
-      if (error) Alert.alert("Could not save", error.message);
+      if (error) { if (Platform.OS === 'web') window.alert(error.message); else Alert.alert("Could not save", error.message); }
       else router.back();
     } else {
       const { error } = await createItem({
@@ -155,7 +155,7 @@ export default function AddItemScreen() {
         remind_days_before: remindDaysBefore,
       });
       setSaving(false);
-      if (error) Alert.alert("Could not save", error.message);
+      if (error) { if (Platform.OS === 'web') window.alert(error.message); else Alert.alert("Could not save", error.message); }
       else router.back();
     }
   }, [

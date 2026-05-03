@@ -3,11 +3,22 @@ import { useTheme } from "@/context/ThemeContext";
 import type { ItemScope } from "@/types";
 import { StyleSheet, Text, View } from "react-native";
 
-const layout = StyleSheet.create({
+export function ScopePill({ scope }: { scope: ItemScope }) {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.wrap, { backgroundColor: colors.faint }]}>
+      <Text style={[styles.text, { color: colors.textMuted }]}>
+        {scope === "ours" ? "Ours" : "My"}
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
   wrap: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: radius.sm,
+    borderRadius: radius.pill,
     alignSelf: "flex-start",
   },
   text: {
@@ -15,13 +26,3 @@ const layout = StyleSheet.create({
     fontWeight: "600",
   },
 });
-
-export function ScopePill({ scope }: { scope: ItemScope }) {
-  const { colors } = useTheme();
-  const ours = scope === "ours";
-  return (
-    <View style={[layout.wrap, { backgroundColor: ours ? colors.oursBg : colors.mineBg }]}>
-      <Text style={[layout.text, { color: ours ? colors.ours : colors.mine }]}>{ours ? "Ours" : "My"}</Text>
-    </View>
-  );
-}

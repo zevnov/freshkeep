@@ -1,8 +1,8 @@
+import { EditorialHeading } from "@/components/EditorialHeading";
+import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
-import type { ThemeColors } from "@/constants/theme";
-import { radius, spacing } from "@/constants/theme";
 import {
   getExpoNotificationPermissionsAsync,
   nativeNotificationsSupported,
@@ -13,7 +13,17 @@ import type { NotificationStyle } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Redirect, router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 function formatDigestTime(hour: number, minute: number): string {
   const d = new Date();
@@ -21,104 +31,9 @@ function formatDigestTime(hour: number, minute: number): string {
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    screen: { flex: 1, backgroundColor: colors.bg },
-    content: { padding: spacing.lg, paddingBottom: spacing.xl * 2, gap: spacing.md },
-    section: {
-      fontSize: 13,
-      fontWeight: "700",
-      color: colors.textMuted,
-      textTransform: "uppercase",
-      letterSpacing: 0.5,
-      marginTop: spacing.sm,
-    },
-    card: {
-      backgroundColor: colors.surface,
-      borderRadius: radius.md,
-      padding: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      gap: spacing.sm,
-    },
-    expoGoNote: {
-      fontSize: 13,
-      lineHeight: 19,
-      color: colors.today,
-      marginBottom: spacing.xs,
-    },
-    mono: { fontFamily: "Menlo", fontSize: 12, color: colors.text },
-    rowLabel: { fontSize: 16, color: colors.text, fontWeight: "600" },
-    rowValue: { fontSize: 15, color: colors.textMuted },
-    rowMuted: { fontSize: 14, color: colors.textMuted },
-    rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
-    caption: { fontSize: 13, lineHeight: 18, color: colors.textMuted, marginTop: 4 },
-    subLabel: {
-      marginTop: spacing.md,
-      fontSize: 12,
-      fontWeight: "700",
-      color: colors.textMuted,
-      textTransform: "uppercase",
-      letterSpacing: 0.4,
-    },
-    styleRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs, flexWrap: "wrap" },
-    styleChip: {
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    styleChipOn: { backgroundColor: colors.primaryMuted, borderColor: colors.primary },
-    styleChipText: { fontSize: 14, fontWeight: "600", color: colors.textMuted },
-    styleChipTextOn: { color: colors.primary },
-    digestTimeBlock: { marginTop: spacing.sm, gap: spacing.xs },
-    timeButton: {
-      alignSelf: "flex-start",
-      marginTop: 4,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 12,
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    timeButtonText: { fontSize: 17, fontWeight: "600", color: colors.text },
-    doneIOS: {
-      alignSelf: "flex-start",
-      marginTop: spacing.sm,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 8,
-      backgroundColor: colors.primary,
-      borderRadius: radius.md,
-    },
-    doneIOSText: { color: colors.onPrimary, fontWeight: "700" },
-    linkCard: {
-      backgroundColor: colors.surface,
-      borderRadius: radius.md,
-      padding: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    linkTitle: { fontSize: 16, fontWeight: "600", color: colors.primary },
-    linkSub: { fontSize: 14, color: colors.textMuted, marginTop: 4 },
-    signOut: {
-      marginTop: spacing.lg,
-      paddingVertical: spacing.md,
-      alignItems: "center",
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    signOutText: { color: colors.danger, fontWeight: "600", fontSize: 16 },
-  });
-}
-
 export default function SettingsScreen() {
   const { colors, isDark } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   const pickerTheme = isDark ? "dark" : "light";
   const { configured, user, profile, signOut, updateNotificationPrefs } = useAuth();
   const { items, refresh } = useItems();
@@ -126,6 +41,9 @@ export default function SettingsScreen() {
   const [showDigestTime, setShowDigestTime] = useState(false);
 
   const prefs = profile?.notification_prefs;
+
+  const lavBg = isDark ? "#150E28" : "#D8CCFF";
+  const lavTx = "#2A1A6B";
 
   const toggle = useCallback(
     async (patch: Parameters<typeof updateNotificationPrefs>[0]) => {
@@ -155,52 +73,110 @@ export default function SettingsScreen() {
     [prefs, updateNotificationPrefs, items]
   );
 
-  if (!configured) {
-    return <Redirect href="/setup" />;
-  }
-  if (!user || !profile || !prefs) {
-    return <Redirect href="/(auth)/login" />;
-  }
+  if (!configured) return <Redirect href="/setup" />;
+  if (!user || !profile || !prefs) return <Redirect href="/(auth)/login" />;
+
+  const styleChip = (active: boolean) => ({
+    paddingHorizontal: 17,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    backgroundColor: active ? colors.brandBtn : colors.faint,
+  });
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.section}>Account</Text>
-      <View style={styles.card}>
-        <Text style={styles.rowLabel}>Signed in as</Text>
-        <Text style={styles.rowValue}>{user.email}</Text>
-        {profile.display_name ? (
-          <Text style={styles.rowMuted}>{profile.display_name}</Text>
-        ) : null}
+    <ScrollView
+      style={[styles.screen, { backgroundColor: colors.bg }]}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + 120 },
+      ]}
+    >
+      {/* Lavender hero card */}
+      <View style={[styles.heroCard, { backgroundColor: lavBg, overflow: "hidden" }]}>
+        <View
+          style={[
+            styles.stickerPill,
+            { backgroundColor: "rgba(0,0,0,0.09)", transform: [{ rotate: "-2deg" }] },
+          ]}
+        >
+          <Text style={[styles.stickerText, { color: lavTx }]}>Account & prefs</Text>
+        </View>
+        <EditorialHeading
+          bold="Settings &"
+          italic="preferences."
+          size={26}
+          color={lavTx}
+          style={{ marginTop: 10 }}
+        />
+        {/* Deco star */}
+        <Text
+          style={[
+            styles.decoStar,
+            { color: "rgba(0,0,0,0.08)", transform: [{ rotate: "20deg" }] },
+          ]}
+        >
+          ✦
+        </Text>
       </View>
 
-      <Text style={styles.section}>Household</Text>
-      <Pressable style={styles.linkCard} onPress={() => router.push("/join-household")}>
-        <Text style={styles.linkTitle}>Join with invite code</Text>
-        <Text style={styles.linkSub}>
-          Move your account into a shared kitchen. If you're alone in your current one, clear active items first.
+      {/* Account card */}
+      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Account</Text>
+      <View style={[styles.card, { backgroundColor: colors.surface }]}>
+        <Text style={{ fontSize: 15, fontWeight: "600", color: colors.text }}>
+          {profile.display_name || "Signed in"}
+        </Text>
+        <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
+          {user.email}
+        </Text>
+      </View>
+
+      {/* Join household link */}
+      <Pressable
+        style={[styles.card, { backgroundColor: colors.bandBg.fresh }]}
+        onPress={() => router.push("/join-household")}
+      >
+        <Text style={{ fontSize: 15, fontWeight: "700", color: colors.bandText.fresh }}>
+          Join with invite code →
+        </Text>
+        <Text
+          style={{
+            fontSize: 13,
+            color: colors.bandText.fresh,
+            opacity: 0.6,
+            lineHeight: 19,
+          }}
+        >
+          Move into a shared kitchen. Clear active items first.
         </Text>
       </Pressable>
 
-      <Text style={styles.section}>Notifications</Text>
-      <View style={styles.card}>
+      {/* Notifications card */}
+      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Notifications</Text>
+      <View style={[styles.card, { backgroundColor: colors.surface }]}>
         {!nativeNotificationsSupported ? (
-          <Text style={styles.expoGoNote}>
-            Expo Go on Android cannot schedule local reminders (SDK 53+). Use a development build to test alerts: run{" "}
-            <Text style={styles.mono}>npx expo run:android</Text> or an EAS dev client. Settings below still save for
-            when you use a real build.
+          <Text style={{ fontSize: 13, lineHeight: 19, color: colors.today, marginBottom: spacing.xs }}>
+            Expo Go on Android cannot schedule local reminders (SDK 53+). Use a development build to test alerts.
           </Text>
         ) : null}
+
         <View style={styles.rowBetween}>
-          <Text style={styles.rowLabel}>Enable reminders</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.text }}>Enable reminders</Text>
+            <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
+              Choose per-item or daily summary
+            </Text>
+          </View>
           <Switch
             value={prefs.masterEnabled}
             onValueChange={(v) => void toggle({ masterEnabled: v })}
             disabled={busy}
           />
         </View>
-        <Text style={styles.caption}>Choose one daily summary or separate alerts per item.</Text>
-        <Text style={styles.subLabel}>Delivery</Text>
-        <View style={styles.styleRow}>
+
+        <View style={[styles.divider, { borderTopColor: colors.sep }]} />
+
+        <Text style={[styles.subLabel, { color: colors.textMuted }]}>Delivery</Text>
+        <View style={styles.chipRow}>
           {(
             [
               ["individual", "Per item"],
@@ -211,20 +187,28 @@ export default function SettingsScreen() {
             return (
               <Pressable
                 key={key}
-                style={[styles.styleChip, active && styles.styleChipOn]}
+                style={styleChip(active)}
                 onPress={() => void toggle({ notificationStyle: key as NotificationStyle })}
                 disabled={busy || !prefs.masterEnabled}
               >
-                <Text style={[styles.styleChipText, active && styles.styleChipTextOn]}>{label}</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : colors.textMuted }}>
+                  {label}
+                </Text>
               </Pressable>
             );
           })}
         </View>
+
         {prefs.notificationStyle === "digest" && prefs.masterEnabled ? (
-          <View style={styles.digestTimeBlock}>
-            <Text style={styles.subLabel}>Digest time</Text>
-            <Pressable style={styles.timeButton} onPress={() => setShowDigestTime(true)}>
-              <Text style={styles.timeButtonText}>{formatDigestTime(prefs.digestHour, prefs.digestMinute)}</Text>
+          <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
+            <Text style={[styles.subLabel, { color: colors.textMuted }]}>Digest time</Text>
+            <Pressable
+              style={[styles.timeBtn, { backgroundColor: colors.faint }]}
+              onPress={() => setShowDigestTime(true)}
+            >
+              <Text style={{ fontSize: 17, fontWeight: "600", color: colors.text }}>
+                {formatDigestTime(prefs.digestHour, prefs.digestMinute)}
+              </Text>
             </Pressable>
             {showDigestTime ? (
               <>
@@ -243,57 +227,46 @@ export default function SettingsScreen() {
                   }}
                 />
                 {Platform.OS === "ios" ? (
-                  <Pressable style={styles.doneIOS} onPress={() => setShowDigestTime(false)}>
-                    <Text style={styles.doneIOSText}>Done</Text>
+                  <Pressable
+                    style={[styles.doneBtn, { backgroundColor: colors.brandBtn }]}
+                    onPress={() => setShowDigestTime(false)}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "700" }}>Done</Text>
                   </Pressable>
                 ) : null}
               </>
             ) : null}
-            <Text style={styles.caption}>
-              One notification each day with counts for use soon, due today, and overdue. Open the app to refresh counts
-              after you change items.
-            </Text>
           </View>
         ) : null}
-        <Text style={styles.subLabel}>
+
+        <View style={[styles.divider, { borderTopColor: colors.sep }]} />
+
+        <Text style={[styles.subLabel, { color: colors.textMuted }]}>
           {prefs.notificationStyle === "digest" ? "Digest includes" : "Alert types"}
         </Text>
-        <View style={styles.rowBetween}>
-          <Text style={styles.rowLabel}>Use soon</Text>
-          <Switch
-            value={prefs.notifySoon}
-            onValueChange={(v) => void toggle({ notifySoon: v })}
-            disabled={busy || !prefs.masterEnabled}
-          />
-        </View>
-        <View style={styles.rowBetween}>
-          <Text style={styles.rowLabel}>Spoil day</Text>
-          <Switch
-            value={prefs.notifyToday}
-            onValueChange={(v) => void toggle({ notifyToday: v })}
-            disabled={busy || !prefs.masterEnabled}
-          />
-        </View>
-        <View style={styles.rowBetween}>
-          <Text style={styles.rowLabel}>Overdue</Text>
-          <Switch
-            value={prefs.notifyOverdue}
-            onValueChange={(v) => void toggle({ notifyOverdue: v })}
-            disabled={busy || !prefs.masterEnabled}
-          />
-        </View>
-        <View style={styles.rowBetween}>
-          <Text style={styles.rowLabel}>Include My bucket</Text>
-          <Switch
-            value={prefs.includeMine}
-            onValueChange={(v) => void toggle({ includeMine: v })}
-            disabled={busy || !prefs.masterEnabled}
-          />
-        </View>
+
+        {(
+          [
+            ["Use soon", prefs.notifySoon, (v: boolean) => toggle({ notifySoon: v })],
+            ["Spoil day", prefs.notifyToday, (v: boolean) => toggle({ notifyToday: v })],
+            ["Overdue", prefs.notifyOverdue, (v: boolean) => toggle({ notifyOverdue: v })],
+            ["Include My bucket", prefs.includeMine, (v: boolean) => toggle({ includeMine: v })],
+          ] as const
+        ).map(([label, val, fn]) => (
+          <View key={label} style={styles.rowBetween}>
+            <Text style={{ fontSize: 15, fontWeight: "500", color: colors.text }}>{label}</Text>
+            <Switch
+              value={val}
+              onValueChange={(v) => void fn(v)}
+              disabled={busy || !prefs.masterEnabled}
+            />
+          </View>
+        ))}
       </View>
 
+      {/* Sign out */}
       <Pressable
-        style={styles.signOut}
+        style={[styles.signOutBtn, { backgroundColor: colors.faint }]}
         onPress={() => {
           const doSignOut = () => {
             void (async () => {
@@ -316,8 +289,87 @@ export default function SettingsScreen() {
           }
         }}
       >
-        <Text style={styles.signOutText}>Sign out</Text>
+        <Text style={[styles.signOutText, { color: colors.danger }]}>Sign out</Text>
       </Pressable>
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  content: { paddingHorizontal: spacing.md, gap: spacing.md },
+  heroCard: {
+    borderRadius: radius.xl,
+    padding: 22,
+  },
+  stickerPill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  stickerText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  decoStar: {
+    position: "absolute",
+    top: 14,
+    right: 18,
+    fontSize: 36,
+  },
+  sectionLabel: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  card: {
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  divider: {
+    borderTopWidth: 1,
+    marginVertical: 4,
+  },
+  subLabel: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
+  chipRow: {
+    flexDirection: "row",
+    gap: 7,
+    flexWrap: "wrap",
+  },
+  timeBtn: {
+    alignSelf: "flex-start",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+  },
+  doneBtn: {
+    alignSelf: "flex-start",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+  },
+  signOutBtn: {
+    paddingVertical: 14,
+    borderRadius: radius.md,
+    alignItems: "center",
+  },
+  signOutText: {
+    fontWeight: "700",
+    fontSize: 15,
+  },
+});

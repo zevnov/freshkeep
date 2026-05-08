@@ -4,7 +4,7 @@ import { radius, spacing } from "@/constants/theme";
 import { lookupBarcodeProduct, type BarcodeLookupResult } from "@/lib/barcodeLookup";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 type ScanRouteParams = {
@@ -66,6 +66,7 @@ function createStyles(colors: ThemeColors) {
       borderRadius: radius.md,
     },
     overlayBtnText: { color: colors.overlay, fontWeight: "700" },
+    lookupStatus: { color: colors.overlayMuted, fontSize: 13, marginTop: spacing.xs },
     resultCard: {
       width: "100%",
       marginTop: spacing.lg,
@@ -96,9 +97,23 @@ export default function ScanBarcodeScreen() {
   const { returnTo, itemId } = useLocalSearchParams<ScanRouteParams>();
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
+  const [slowLookup, setSlowLookup] = useState(false);
   const [handledCode, setHandledCode] = useState<string | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [scanResult, setScanResult] = useState<BarcodeLookupResult | null>(null);
+  const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (busy) {
+      slowTimerRef.current = setTimeout(() => setSlowLookup(true), 4000);
+    } else {
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+      setSlowLookup(false);
+    }
+    return () => {
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    };
+  }, [busy]);
 
   const destination = useMemo(() => {
     const pathname = returnTo === "add-item" ? "/add-item" : "/add-item";
@@ -197,7 +212,14 @@ export default function ScanBarcodeScreen() {
         <Text style={styles.overlayTitle}>Scan a barcode</Text>
         <Text style={styles.overlaySub}>We will auto-fill what we can.</Text>
         <View style={styles.frame} />
-        {busy ? <ActivityIndicator color={colors.overlay} style={{ marginTop: spacing.md }} /> : null}
+        {busy ? (
+          <>
+            <ActivityIndicator color={colors.overlay} style={{ marginTop: spacing.md }} />
+            <Text style={styles.lookupStatus}>
+              {slowLookup ? "Taking a bit longer…" : "Looking up product…"}
+            </Text>
+          </>
+        ) : null}
 
         <View style={styles.controlsRow}>
           <Pressable style={styles.overlayBtn} onPress={() => setTorchOn((v) => !v)}>

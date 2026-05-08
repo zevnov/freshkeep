@@ -4,7 +4,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { lookupBarcodeProduct, type BarcodeLookupResult } from "@/lib/barcodeLookup";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -23,9 +23,23 @@ export default function ScanBarcodeScreen() {
   const { itemId } = useLocalSearchParams<ScanRouteParams>();
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
+  const [slowLookup, setSlowLookup] = useState(false);
   const [handledCode, setHandledCode] = useState<string | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [scanResult, setScanResult] = useState<BarcodeLookupResult | null>(null);
+  const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (busy) {
+      slowTimerRef.current = setTimeout(() => setSlowLookup(true), 4000);
+    } else {
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+      setSlowLookup(false);
+    }
+    return () => {
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    };
+  }, [busy]);
 
   const destination = useMemo(() => {
     return "/add-item" as const;
@@ -120,7 +134,7 @@ export default function ScanBarcodeScreen() {
         barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e"] }}
         onBarcodeScanned={onBarcodeScanned}
       />
-      
+
       {/* Overlay with Editorial vibe */}
       <View style={styles.overlay}>
         <View style={styles.header}>
@@ -137,7 +151,14 @@ export default function ScanBarcodeScreen() {
             <View style={styles.cornerBR} />
         </View>
 
-        {busy && <ActivityIndicator color="#fff" style={{ marginTop: 30 }} />}
+        {busy ? (
+          <>
+            <ActivityIndicator color="#fff" style={{ marginTop: 30 }} />
+            <Text style={styles.lookupStatus}>
+              {slowLookup ? "Taking a bit longer…" : "Looking up product…"}
+            </Text>
+          </>
+        ) : null}
 
         <View style={styles.controlsRow}>
           <Pressable
@@ -177,7 +198,7 @@ export default function ScanBarcodeScreen() {
 
             <Text style={[styles.resultTitle, { color: colors.text }]}>{scanResult.name ?? "Product not found"}</Text>
             <Text style={{ color: colors.textMuted, fontSize: 13 }}>Barcode: {scanResult.barcode}</Text>
-            
+
             <View style={styles.resultActions}>
               <Pressable
                 style={[styles.resultBtn, { backgroundColor: colors.brandBtn }]}
@@ -254,6 +275,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.3)",
   },
   overlayBtnText: { color: "#fff", fontWeight: "600" },
+  lookupStatus: { color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 8 },
   resultCard: {
     width: "100%",
     position: 'absolute',

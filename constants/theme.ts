@@ -7,6 +7,10 @@ export type ThemeColors = {
   border: string;
   primary: string;
   primaryMuted: string;
+  faint: string;
+  sep: string;
+  brand: string;
+  brandBtn: string;
   ours: string;
   oursBg: string;
   mine: string;
@@ -22,52 +26,96 @@ export type ThemeColors = {
   overlay: string;
   overlayMuted: string;
   shadow: string;
+  /** Pastel band fill backgrounds */
+  bandBg: { fresh: string; soon: string; today: string; overdue: string };
+  /** Text color on pastel band fills */
+  bandText: { fresh: string; soon: string; today: string; overdue: string };
+  /** Yellow accent for FAB */
+  yellow: string;
+  /** Whether this is the dark variant */
+  isDark: boolean;
 };
 
 export const lightColors: ThemeColors = {
-  bg: "#f4f7f4",
-  surface: "#ffffff",
-  text: "#1a2e1a",
-  textMuted: "#5c6b5c",
-  border: "#d8e3d8",
-  primary: "#3d6b47",
+  bg: "#F8F5EE",
+  surface: "#FFFFFF",
+  text: "#1A1A17",
+  textMuted: "#777065",
+  border: "#EDEBE4",
+  primary: "#1A4214",
   primaryMuted: "#e8f2ea",
+  faint: "#EDEBE4",
+  sep: "rgba(0,0,0,0.07)",
+  brand: "#1A4214",
+  brandBtn: "#1A4214",
   ours: "#2f6b8f",
   oursBg: "#e8f2f8",
   mine: "#8b5cf6",
   mineBg: "#f0ebff",
-  fresh: "#3d6b47",
-  soon: "#c47f00",
-  today: "#c45c26",
-  overdue: "#b3261e",
-  danger: "#b3261e",
+  fresh: "#14401A",
+  soon: "#4A3200",
+  today: "#4A2000",
+  overdue: "#4A0E0E",
+  danger: "#9A1A1A",
   onPrimary: "#ffffff",
   overlay: "#ffffff",
   overlayMuted: "#f0f0f0",
   shadow: "#000000",
+  bandBg: {
+    fresh: "#C3E8BB",
+    soon: "#FFE07A",
+    today: "#FFD0B0",
+    overdue: "#F5A0A0",
+  },
+  bandText: {
+    fresh: "#14401A",
+    soon: "#4A3200",
+    today: "#4A2000",
+    overdue: "#4A0E0E",
+  },
+  yellow: "#FFE07A",
+  isDark: false,
 };
 
 export const darkColors: ThemeColors = {
-  bg: "#0f140f",
-  surface: "#1a221a",
-  text: "#e6eee6",
-  textMuted: "#8a9d8a",
-  border: "#2a362a",
-  primary: "#6bc47a",
+  bg: "#131313",
+  surface: "#1C1C1A",
+  text: "#F0EDE6",
+  textMuted: "#888278",
+  border: "#2A2A28",
+  primary: "#9FD89A",
   primaryMuted: "#1f2e1f",
+  faint: "#282824",
+  sep: "rgba(255,255,255,0.07)",
+  brand: "#9FD89A",
+  brandBtn: "#2A5A26",
   ours: "#7ec4ea",
   oursBg: "#1a2832",
   mine: "#b794f6",
   mineBg: "#2a2238",
-  fresh: "#7ed391",
-  soon: "#e6a030",
-  today: "#e88850",
-  overdue: "#f0665c",
-  danger: "#f0665c",
+  fresh: "#9FD89A",
+  soon: "#FFD850",
+  today: "#FFB070",
+  overdue: "#F07070",
+  danger: "#F07070",
   onPrimary: "#0a120a",
   overlay: "#ffffff",
   overlayMuted: "#d0ddd0",
   shadow: "#000000",
+  bandBg: {
+    fresh: "#0F2A18",
+    soon: "#241C00",
+    today: "#220E00",
+    overdue: "#240800",
+  },
+  bandText: {
+    fresh: "#9FD89A",
+    soon: "#FFD850",
+    today: "#FFB070",
+    overdue: "#F07070",
+  },
+  yellow: "#FFE07A",
+  isDark: true,
 };
 
 export const spacing = {
@@ -79,7 +127,9 @@ export const spacing = {
 };
 
 export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
+  sm: 12,
+  md: 16,
+  lg: 22,
+  xl: 28,
+  pill: 999,
 };

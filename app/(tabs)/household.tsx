@@ -296,7 +296,7 @@ export default function HouseholdScreen() {
         <Text style={styles.secondaryBtnText}>Join a different household</Text>
       </Pressable>
       <Text style={styles.joinFootnote}>
-        Solo kitchen? Finish or discard active items first; you can&apos;t join elsewhere until your current list is clear.
+        Solo kitchen? Finish or discard active items first; you can't join elsewhere until your current list is clear.
       </Text>
     </ScrollView>
   );

@@ -193,6 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = useCallback(async () => {
     try {
       const redirectTo = Linking.createURL("auth/callback");
+      if (__DEV__) console.log("[OAuth] Add this exact URL to Supabase Redirect URLs:", redirectTo);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {

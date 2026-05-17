@@ -1,4 +1,4 @@
-import { PRODUCE_KNOWLEDGE } from "./expiryKnowledge";
+import { EXPIRY_KNOWLEDGE, ExpiryItem } from "./expiryKnowledge";
 
 export interface DetectedItem {
   name: string;
@@ -19,12 +19,12 @@ export function detectItem(input: string): DetectedItem | null {
   if (!normalized) return null;
 
   // 1. Try exact name match first
-  let match = PRODUCE_KNOWLEDGE.find((item) => item.name === normalized);
+  let match = EXPIRY_KNOWLEDGE.find((item: ExpiryItem) => item.name === normalized);
 
   // 2. Try keyword matching (check if any keyword appears in the input)
   if (!match) {
-    match = PRODUCE_KNOWLEDGE.find((item) =>
-      item.keywords.some((kw) => normalized.includes(kw))
+    match = EXPIRY_KNOWLEDGE.find((item: ExpiryItem) =>
+      item.keywords.some((kw: string) => normalized.includes(kw))
     );
   }
 

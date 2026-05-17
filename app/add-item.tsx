@@ -60,6 +60,7 @@ export default function AddItemScreen() {
   const [showRefPicker, setShowRefPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const appliedScanAtRef = useRef<string | undefined>(undefined);
+  const lastAutoStorageForRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (existing) {
@@ -107,14 +108,18 @@ export default function AddItemScreen() {
     const detected = detectItem(name);
     if (!detected) {
       setExpiryResult(null);
+      lastAutoStorageForRef.current = null;
       return;
     }
     const suggestedStorage = suggestStorage(detected);
-    // Only auto-set storage when not editing an existing item
-    if (!id) {
+    let effectiveStorage = storage;
+    // Auto-set storage once per detected item type (don't override manual picks)
+    if (!id && lastAutoStorageForRef.current !== detected.name) {
       setStorage(suggestedStorage);
+      lastAutoStorageForRef.current = detected.name;
+      effectiveStorage = suggestedStorage;
     }
-    const result = calculateExpiry(name, storage, opened);
+    const result = calculateExpiry(name, effectiveStorage, opened);
     setExpiryResult(result);
     // Only auto-set expiry when not editing an existing item
     if (!id) {

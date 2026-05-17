@@ -1,10 +1,9 @@
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { EditorialHeading } from "@/components/EditorialHeading";
 import { radius, spacing } from "@/constants/theme";
-import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
-import { calculateExpiry } from "@/lib/expiryEngine";
-import { detectItem } from "@/lib/keywordDetect";
+import { useBulkItemQueue } from "@/hooks/useBulkItemQueue";
+import { mergeBulkQueueItems, parseReceiptLines } from "@/lib/bulkScanItems";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useCallback, useRef, useState } from "react";
@@ -22,63 +21,27 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-interface ScannedItem {
-  id: string;
-  barcode: null;
-  name: string;
-  category: string | null;
-  fridgeDays: number | null;
-  freezerDays: number | null;
-  perishable: boolean;
-  quantity: number;
-}
-
-let _idCounter = 0;
-function genId(): string {
-  _idCounter += 1;
-  return String(_idCounter);
-}
-
-function parseItems(text: string): ScannedItem[] {
-  const lines = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => {
-      if (l.length < 2) return false;
-      if (/^\d+(\.\d+)?$/.test(l)) return false; // numbers only
-      if (/^[^a-zA-Z]+$/.test(l)) return false; // no letters
-      return true;
-    });
-
-  const nameMap = new Map<string, ScannedItem>();
-
-  for (const line of lines) {
-    const detected = detectItem(line);
-    const key = detected ? detected.name : line.toLowerCase().trim();
-
-    if (nameMap.has(key)) {
-      const existing = nameMap.get(key)!;
-      nameMap.set(key, { ...existing, quantity: existing.quantity + 1 });
-    } else {
-      nameMap.set(key, {
-        id: genId(),
-        barcode: null,
-        name: detected ? detected.name : line,
-        category: detected ? detected.category : null,
-        fridgeDays: detected ? detected.fridgeDays : null,
-        freezerDays: detected ? detected.freezerDays : null,
-        perishable: detected ? detected.perishable : true,
-        quantity: 1,
-      });
-    }
-  }
-
-  return Array.from(nameMap.values());
-}
-
 export default function ReceiptScanScreen() {
   const { colors } = useTheme();
-  const { createItem } = useItems();
+  const {
+    items: scannedItems,
+    setItems: setScannedItems,
+    editingId,
+    editingName,
+    setEditingName,
+    showClearModal,
+    setShowClearModal,
+    showExitModal,
+    setShowExitModal,
+    saving,
+    clearItems,
+    deleteItem,
+    startEdit,
+    commitEdit,
+    expiryLabelFor,
+    saveAllWithFeedback,
+  } = useBulkItemQueue();
+
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -87,12 +50,6 @@ export default function ReceiptScanScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
   const [detecting, setDetecting] = useState(false);
-  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-  const [showClearModal, setShowClearModal] = useState(false);
-  const [showExitModal, setShowExitModal] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const hasUnsavedWork = scannedItems.length > 0 || inputText.trim().length > 0;
 
@@ -117,71 +74,17 @@ export default function ReceiptScanScreen() {
     if (!inputText.trim()) return;
     setDetecting(true);
     setTimeout(() => {
-      const newItems = parseItems(inputText);
-      setScannedItems((prev) => {
-        const merged = [...prev];
-        for (const item of newItems) {
-          const existingIdx = merged.findIndex(
-            (m) => m.name.toLowerCase() === item.name.toLowerCase()
-          );
-          if (existingIdx >= 0) {
-            merged[existingIdx] = {
-              ...merged[existingIdx],
-              quantity: merged[existingIdx].quantity + item.quantity,
-            };
-          } else {
-            merged.push(item);
-          }
-        }
-        return merged;
-      });
+      const newItems = parseReceiptLines(inputText);
+      setScannedItems((prev) => mergeBulkQueueItems(prev, newItems));
       setInputText("");
       setDetecting(false);
     }, 300);
-  }, [inputText]);
-
-  const handleDelete = useCallback((id: string) => {
-    setScannedItems((prev) => prev.filter((i) => i.id !== id));
-  }, []);
-
-  const handleStartEdit = useCallback((item: ScannedItem) => {
-    setEditingId(item.id);
-    setEditingName(item.name);
-  }, []);
-
-  const handleCommitEdit = useCallback(() => {
-    if (!editingId) return;
-    const trimmed = editingName.trim();
-    if (trimmed) {
-      setScannedItems((prev) =>
-        prev.map((i) => (i.id === editingId ? { ...i, name: trimmed } : i))
-      );
-    }
-    setEditingId(null);
-    setEditingName("");
-  }, [editingId, editingName]);
+  }, [inputText, setScannedItems]);
 
   const handleSaveAll = useCallback(async () => {
     if (scannedItems.length === 0) return;
-    setSaving(true);
-    for (const item of scannedItems) {
-      const storage = item.perishable ? ("fridge" as const) : ("pantry" as const);
-      const { spoilDate: spoilOn } = calculateExpiry(item.name, storage, false);
-      await createItem({
-        scope: "ours",
-        name: item.name,
-        storage,
-        spoil_on: spoilOn,
-        quantity: item.quantity,
-        unit: null,
-        notes: null,
-        remind_me: false,
-        remind_days_before: 0,
-      });
-    }
-    setSaving(false);
-    router.back();
-  }, [scannedItems, createItem]);
+    await saveAllWithFeedback(() => router.back());
+  }, [scannedItems.length, saveAllWithFeedback]);
 
   const handleBack = useCallback(() => {
     if (hasUnsavedWork) {
@@ -192,10 +95,9 @@ export default function ReceiptScanScreen() {
   }, [hasUnsavedWork]);
 
   const renderItem = useCallback(
-    ({ item }: { item: ScannedItem }) => {
+    ({ item }: { item: (typeof scannedItems)[number] }) => {
       const isEditing = editingId === item.id;
-      const storage = item.perishable ? ("fridge" as const) : ("pantry" as const);
-      const { message: expiryLabel } = calculateExpiry(item.name, storage, false);
+      const expiryLabel = expiryLabelFor(item);
 
       const categoryColor = item.category ? colors.primaryMuted : colors.faint;
       const categoryTextColor = item.category ? colors.brand : colors.textMuted;
@@ -219,15 +121,15 @@ export default function ReceiptScanScreen() {
                 ]}
                 value={editingName}
                 onChangeText={setEditingName}
-                onBlur={handleCommitEdit}
-                onSubmitEditing={handleCommitEdit}
+                onBlur={commitEdit}
+                onSubmitEditing={commitEdit}
                 autoFocus
                 returnKeyType="done"
                 accessibilityLabel="Edit item name"
               />
             ) : (
               <Pressable
-                onPress={() => handleStartEdit(item)}
+                onPress={() => startEdit(item)}
                 accessibilityRole="button"
                 accessibilityLabel={`Edit name: ${item.name}`}
               >
@@ -249,7 +151,7 @@ export default function ReceiptScanScreen() {
               </Text>
             </View>
             <Pressable
-              onPress={() => handleDelete(item.id)}
+              onPress={() => deleteItem(item.id)}
               style={[
                 styles.deleteBtn,
                 { backgroundColor: colors.danger + "18" },
@@ -269,9 +171,11 @@ export default function ReceiptScanScreen() {
       editingId,
       editingName,
       colors,
-      handleStartEdit,
-      handleCommitEdit,
-      handleDelete,
+      startEdit,
+      commitEdit,
+      deleteItem,
+      expiryLabelFor,
+      setEditingName,
     ]
   );
 
@@ -537,10 +441,7 @@ export default function ReceiptScanScreen() {
         message="This will remove all detected items."
         confirmLabel="Clear all"
         confirmDanger
-        onConfirm={() => {
-          setScannedItems([]);
-          setShowClearModal(false);
-        }}
+        onConfirm={clearItems}
         onCancel={() => setShowClearModal(false)}
       />
 

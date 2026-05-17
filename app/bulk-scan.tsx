@@ -1,11 +1,10 @@
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { EditorialHeading } from "@/components/EditorialHeading";
 import { radius, spacing } from "@/constants/theme";
-import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useBulkItemQueue } from "@/hooks/useBulkItemQueue";
+import { buildBulkQueueItem } from "@/lib/bulkScanItems";
 import { lookupBarcodeProduct } from "@/lib/barcodeLookup";
-import { calculateExpiry } from "@/lib/expiryEngine";
-import { detectItem } from "@/lib/keywordDetect";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useCallback, useRef, useState } from "react";
@@ -19,35 +18,30 @@ import {
   View,
 } from "react-native";
 
-interface ScannedItem {
-  id: string;
-  barcode: string | null;
-  name: string;
-  category: string | null;
-  fridgeDays: number | null;
-  freezerDays: number | null;
-  perishable: boolean;
-  quantity: number;
-}
-
-let _idCounter = 0;
-function genId(): string {
-  _idCounter += 1;
-  return String(_idCounter);
-}
-
 export default function BulkScanScreen() {
   const { colors } = useTheme();
-  const { createItem } = useItems();
+  const {
+    items: scannedItems,
+    setItems: setScannedItems,
+    editingId,
+    editingName,
+    setEditingName,
+    showClearModal,
+    setShowClearModal,
+    showExitModal,
+    setShowExitModal,
+    saving,
+    clearItems,
+    deleteItem,
+    startEdit,
+    commitEdit,
+    expiryLabelFor,
+    saveAllWithFeedback,
+  } = useBulkItemQueue();
+
   const [permission, requestPermission] = useCameraPermissions();
   const [torchOn, setTorchOn] = useState(false);
-  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [lookingUp, setLookingUp] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-  const [showClearModal, setShowClearModal] = useState(false);
-  const [showExitModal, setShowExitModal] = useState(false);
-  const [saving, setSaving] = useState(false);
   const handledRef = useRef<Set<string>>(new Set());
 
   const onBarcodeScanned = useCallback(
@@ -55,7 +49,6 @@ export default function BulkScanScreen() {
       const code = data.trim();
       if (!code || lookingUp || handledRef.current.has(code)) return;
 
-      // Duplicate detection: increment quantity for same barcode
       const existing = scannedItems.find((i) => i.barcode === code);
       if (existing) {
         handledRef.current.add(code);
@@ -64,7 +57,6 @@ export default function BulkScanScreen() {
             i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i
           )
         );
-        // Allow re-scan after brief cooldown
         setTimeout(() => {
           handledRef.current.delete(code);
         }, 2000);
@@ -77,78 +69,27 @@ export default function BulkScanScreen() {
       setLookingUp(false);
 
       const productName = result.name ?? "Unknown";
-      const detected = detectItem(productName);
-
-      const newItem: ScannedItem = {
-        id: genId(),
-        barcode: code,
-        name: detected ? detected.name : productName,
-        category: detected ? detected.category : null,
-        fridgeDays: detected ? detected.fridgeDays : null,
-        freezerDays: detected ? detected.freezerDays : null,
-        perishable: detected ? detected.perishable : true,
-        quantity: 1,
-      };
-
+      const newItem = buildBulkQueueItem(productName, code);
       setScannedItems((prev) => [newItem, ...prev]);
 
-      // Allow re-scan after cooldown
       setTimeout(() => {
         handledRef.current.delete(code);
       }, 2000);
     },
-    [lookingUp, scannedItems]
+    [lookingUp, scannedItems, setScannedItems]
   );
 
   const handleAddManually = useCallback(() => {
     router.push("/add-item");
   }, []);
 
-  const handleDelete = useCallback((id: string) => {
-    setScannedItems((prev) => prev.filter((i) => i.id !== id));
-  }, []);
-
-  const handleStartEdit = useCallback((item: ScannedItem) => {
-    setEditingId(item.id);
-    setEditingName(item.name);
-  }, []);
-
-  const handleCommitEdit = useCallback(() => {
-    if (!editingId) return;
-    const trimmed = editingName.trim();
-    if (trimmed) {
-      setScannedItems((prev) =>
-        prev.map((i) => (i.id === editingId ? { ...i, name: trimmed } : i))
-      );
-    }
-    setEditingId(null);
-    setEditingName("");
-  }, [editingId, editingName]);
-
   const handleDone = useCallback(async () => {
     if (scannedItems.length === 0) {
       router.back();
       return;
     }
-    setSaving(true);
-    for (const item of scannedItems) {
-      const storage = item.perishable ? ("fridge" as const) : ("pantry" as const);
-      const { spoilDate: spoilOn } = calculateExpiry(item.name, storage, false);
-      await createItem({
-        scope: "ours",
-        name: item.name,
-        storage,
-        spoil_on: spoilOn,
-        quantity: item.quantity,
-        unit: null,
-        notes: null,
-        remind_me: false,
-        remind_days_before: 0,
-      });
-    }
-    setSaving(false);
-    router.back();
-  }, [scannedItems, createItem]);
+    await saveAllWithFeedback(() => router.back());
+  }, [scannedItems.length, saveAllWithFeedback]);
 
   const handleBack = useCallback(() => {
     if (scannedItems.length > 0) {
@@ -156,23 +97,19 @@ export default function BulkScanScreen() {
     } else {
       router.back();
     }
-  }, [scannedItems.length]);
+  }, [scannedItems.length, setShowExitModal]);
 
   const renderItem = useCallback(
-    ({ item }: { item: ScannedItem }) => {
+    ({ item }: { item: (typeof scannedItems)[number] }) => {
       const isEditing = editingId === item.id;
-      const storage = item.perishable ? ("fridge" as const) : ("pantry" as const);
-      const { message: expiryLabel } = calculateExpiry(item.name, storage, false);
+      const expiryLabel = expiryLabelFor(item);
 
-      const categoryColor = item.category
-        ? colors.primaryMuted
-        : colors.faint;
+      const categoryColor = item.category ? colors.primaryMuted : colors.faint;
       const categoryTextColor = item.category ? colors.brand : colors.textMuted;
 
       return (
         <View style={[styles.itemCard, { backgroundColor: colors.surface }]}>
           <View style={styles.itemMain}>
-            {/* Category pill */}
             <View
               style={[
                 styles.categoryPill,
@@ -184,7 +121,6 @@ export default function BulkScanScreen() {
               </Text>
             </View>
 
-            {/* Name (tappable to edit) */}
             {isEditing ? (
               <TextInput
                 style={[
@@ -193,15 +129,15 @@ export default function BulkScanScreen() {
                 ]}
                 value={editingName}
                 onChangeText={setEditingName}
-                onBlur={handleCommitEdit}
-                onSubmitEditing={handleCommitEdit}
+                onBlur={commitEdit}
+                onSubmitEditing={commitEdit}
                 autoFocus
                 returnKeyType="done"
                 accessibilityLabel="Edit item name"
               />
             ) : (
               <Pressable
-                onPress={() => handleStartEdit(item)}
+                onPress={() => startEdit(item)}
                 accessibilityRole="button"
                 accessibilityLabel={`Edit name: ${item.name}`}
               >
@@ -211,25 +147,20 @@ export default function BulkScanScreen() {
               </Pressable>
             )}
 
-            {/* Expiry / non-perishable info */}
             <Text style={[styles.itemMeta, { color: colors.textMuted }]}>
               {expiryLabel}
             </Text>
           </View>
 
           <View style={styles.itemRight}>
-            {/* Quantity badge */}
-            <View
-              style={[styles.qtyBadge, { backgroundColor: colors.faint }]}
-            >
+            <View style={[styles.qtyBadge, { backgroundColor: colors.faint }]}>
               <Text style={[styles.qtyText, { color: colors.text }]}>
                 ×{item.quantity}
               </Text>
             </View>
 
-            {/* Delete button */}
             <Pressable
-              onPress={() => handleDelete(item.id)}
+              onPress={() => deleteItem(item.id)}
               style={[styles.deleteBtn, { backgroundColor: colors.danger + "18" }]}
               accessibilityRole="button"
               accessibilityLabel={`Remove ${item.name}`}
@@ -246,9 +177,11 @@ export default function BulkScanScreen() {
       editingId,
       editingName,
       colors,
-      handleStartEdit,
-      handleCommitEdit,
-      handleDelete,
+      startEdit,
+      commitEdit,
+      deleteItem,
+      expiryLabelFor,
+      setEditingName,
     ]
   );
 
@@ -305,7 +238,6 @@ export default function BulkScanScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.bg }]}>
-      {/* ── Camera viewport (top 40%) ── */}
       <View style={styles.cameraSection}>
         <CameraView
           style={StyleSheet.absoluteFill}
@@ -318,7 +250,6 @@ export default function BulkScanScreen() {
         />
 
         <View style={styles.cameraOverlay}>
-          {/* Header */}
           <View style={styles.cameraHeader}>
             <EditorialHeading
               bold="Bulk"
@@ -333,7 +264,6 @@ export default function BulkScanScreen() {
             </Text>
           </View>
 
-          {/* Corner frame */}
           <View style={styles.frame}>
             <View style={styles.cornerTL} />
             <View style={styles.cornerTR} />
@@ -345,7 +275,6 @@ export default function BulkScanScreen() {
             <ActivityIndicator color="#fff" style={{ marginTop: 16 }} />
           )}
 
-          {/* Camera controls */}
           <View style={styles.cameraControls}>
             <Pressable
               style={styles.overlayBtn}
@@ -377,9 +306,7 @@ export default function BulkScanScreen() {
         </View>
       </View>
 
-      {/* ── Scanned item list (bottom 60%) ── */}
       <View style={[styles.listSection, { backgroundColor: colors.bg }]}>
-        {/* List header */}
         <View style={[styles.listHeader, { borderBottomColor: colors.border }]}>
           <View>
             <Text style={[styles.listTitle, { color: colors.text }]}>
@@ -407,16 +334,12 @@ export default function BulkScanScreen() {
                 styles.doneBtn,
                 {
                   backgroundColor:
-                    scannedItems.length > 0
-                      ? colors.brandBtn
-                      : colors.faint,
+                    scannedItems.length > 0 ? colors.brandBtn : colors.faint,
                 },
               ]}
               disabled={saving}
               accessibilityRole="button"
-              accessibilityLabel={
-                saving ? "Saving items" : "Save all scanned items"
-              }
+              accessibilityLabel={saving ? "Saving items" : "Save all scanned items"}
             >
               {saving ? (
                 <ActivityIndicator color="#fff" size="small" />
@@ -425,8 +348,7 @@ export default function BulkScanScreen() {
                   style={[
                     styles.doneBtnText,
                     {
-                      color:
-                        scannedItems.length > 0 ? "#fff" : colors.textMuted,
+                      color: scannedItems.length > 0 ? "#fff" : colors.textMuted,
                     },
                   ]}
                 >
@@ -452,21 +374,16 @@ export default function BulkScanScreen() {
         />
       </View>
 
-      {/* Clear all confirmation */}
       <ConfirmationModal
         visible={showClearModal}
         title="Clear all items?"
         message="This will remove all scanned items from your list."
         confirmLabel="Clear all"
         confirmDanger
-        onConfirm={() => {
-          setScannedItems([]);
-          setShowClearModal(false);
-        }}
+        onConfirm={clearItems}
         onCancel={() => setShowClearModal(false)}
       />
 
-      {/* Exit confirmation */}
       <ConfirmationModal
         visible={showExitModal}
         title="Discard scanned items?"
@@ -498,7 +415,6 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
 
-  // Camera section
   cameraSection: {
     flex: 2,
     backgroundColor: "#000",
@@ -581,7 +497,6 @@ const styles = StyleSheet.create({
   },
   overlayBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
 
-  // List section
   listSection: {
     flex: 3,
   },
@@ -628,7 +543,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
 
-  // Item cards
   itemCard: {
     borderRadius: radius.md,
     padding: spacing.sm + 4,

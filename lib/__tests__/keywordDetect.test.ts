@@ -1,4 +1,9 @@
-import { detectItem, isNonPerishable, estimateExpiry } from "@/lib/keywordDetect";
+import {
+  detectItem,
+  estimateExpiry,
+  isNonPerishable,
+  keywordMatchesInput,
+} from "@/lib/keywordDetect";
 
 describe("detectItem — exact name match", () => {
   it("finds strawberry by exact name", () => {
@@ -74,6 +79,49 @@ describe("isNonPerishable", () => {
     if (item) {
       expect(isNonPerishable(item)).toBe(true);
     }
+  });
+});
+
+describe("keywordMatchesInput — word boundaries", () => {
+  it("matches keyword at start, middle, and end of string", () => {
+    expect(keywordMatchesInput("strawberries", "strawberries")).toBe(true);
+    expect(keywordMatchesInput("organic strawberries", "strawberries")).toBe(true);
+    expect(keywordMatchesInput("fresh strawberry", "strawberry")).toBe(true);
+  });
+
+  it("rejects substring matches inside other words", () => {
+    expect(keywordMatchesInput("pepperoni pizza", "pepper")).toBe(false);
+    expect(keywordMatchesInput("popcorn", "corn")).toBe(false);
+    expect(keywordMatchesInput("hamburger", "ham")).toBe(false);
+    expect(keywordMatchesInput("champagne", "ham")).toBe(false);
+  });
+});
+
+describe("detectItem — avoids false positives", () => {
+  it("does not match bell pepper from pepperoni pizza", () => {
+    const result = detectItem("pepperoni pizza");
+    expect(result).not.toBeNull();
+    expect(result!.name).not.toBe("bell pepper");
+  });
+
+  it("does not match corn from popcorn product name", () => {
+    const result = detectItem("butter popcorn");
+    expect(result?.name).not.toBe("corn");
+  });
+
+  it("does not match ham from hamburger", () => {
+    expect(detectItem("hamburger")).toBeNull();
+  });
+
+  it("prefers longer keyword (bell pepper over pepper)", () => {
+    const result = detectItem("green bell pepper");
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe("bell pepper");
+  });
+
+  it("still matches multi-word product names", () => {
+    expect(detectItem("organic whole milk")).not.toBeNull();
+    expect(detectItem("organic whole milk")!.name).toBe("milk");
   });
 });
 

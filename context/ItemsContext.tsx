@@ -37,6 +37,7 @@ type ItemsContextValue = {
       remind_me: boolean;
       remind_days_before: number;
       status: ItemStatus;
+      owner_user_id: string | null;
     }>
     ,
     expectedScheduleVersion?: number

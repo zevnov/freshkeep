@@ -3,6 +3,7 @@ import "react-native-gesture-handler";
 import { AuthProvider } from "@/context/AuthContext";
 import { ItemsProvider } from "@/context/ItemsContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import * as Sentry from "@sentry/react-native";
 import Constants from "expo-constants";
 import { ensureNotificationChannel } from "@/lib/notifications";
@@ -50,17 +51,19 @@ function RootStack() {
 
 function RootLayout() {
   useEffect(() => {
-    void ensureNotificationChannel();
+    ensureNotificationChannel().catch((err) => Sentry.captureException(err));
   }, []);
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <ItemsProvider>
-          <RootStack />
-        </ItemsProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <ItemsProvider>
+            <RootStack />
+          </ItemsProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

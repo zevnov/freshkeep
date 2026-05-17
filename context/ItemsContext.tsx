@@ -4,6 +4,7 @@ import { cancelItemNotifications, rescheduleAllItems } from "@/lib/notifications
 import { parseItemRow } from "@/lib/supabaseRows";
 import { supabase } from "@/lib/supabase";
 import type { ItemRow, ItemScope, ItemStatus, StoragePlace } from "@/types";
+import * as Sentry from "@sentry/react-native";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 
@@ -62,7 +63,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
     const previousItems = previousItemsRef.current;
     previousItemsRef.current = items;
 
-    void (async () => {
+    (async () => {
       const currentIds = new Set(items.map((item) => item.id));
       for (const oldItem of previousItems) {
         if (!currentIds.has(oldItem.id)) {
@@ -70,7 +71,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
         }
       }
       await rescheduleAllItems(items, profile.notification_prefs);
-    })();
+    })().catch((err) => Sentry.captureException(err));
   }, [items, profile]);
 
   const refresh = useCallback(async () => {

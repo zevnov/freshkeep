@@ -3,6 +3,7 @@ import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
+import * as Sentry from "@sentry/react-native";
 import {
   getExpoNotificationPermissionsAsync,
   nativeNotificationsSupported,
@@ -62,12 +63,17 @@ export default function SettingsScreen() {
         }
       }
       setBusy(true);
-      const { error } = await updateNotificationPrefs(patch);
-      setBusy(false);
-      if (error) Alert.alert("Could not save", error.message);
-      else {
-        const merged = { ...prefs, ...patch };
-        await rescheduleAllItems(items, merged);
+      try {
+        const { error } = await updateNotificationPrefs(patch);
+        if (error) Alert.alert("Could not save", error.message);
+        else {
+          const merged = { ...prefs, ...patch };
+          await rescheduleAllItems(items, merged);
+        }
+      } catch (err) {
+        Sentry.captureException(err);
+      } finally {
+        setBusy(false);
       }
     },
     [prefs, updateNotificationPrefs, items]

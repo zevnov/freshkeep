@@ -9,6 +9,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { MAX_ITEM_NAME_LENGTH, hasVisibleItemName, normalizeItemName } from "@/lib/itemName";
 import { spoilOnFromShelf, toLocalDateString } from "@/lib/spoil";
 import type { ItemScope, StoragePlace } from "@/types";
+import * as Sentry from "@sentry/react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -139,36 +140,41 @@ export default function AddItemScreen() {
     const remindDaysBefore = Number.isFinite(rd) && rd > 0 ? rd : 0;
 
     setSaving(true);
-    if (id && existing) {
-      const { error } = await updateItem(id, {
-        name: normalizedName,
-        scope,
-        storage,
-        spoil_on: spoilOnYmd,
-        quantity: q,
-        unit: unit.trim() || null,
-        notes: notes.trim() || null,
-        remind_me: remindMe,
-        remind_days_before: remindDaysBefore,
-      }, existing.schedule_version);
+    try {
+      if (id && existing) {
+        const { error } = await updateItem(id, {
+          name: normalizedName,
+          scope,
+          storage,
+          spoil_on: spoilOnYmd,
+          quantity: q,
+          unit: unit.trim() || null,
+          notes: notes.trim() || null,
+          remind_me: remindMe,
+          remind_days_before: remindDaysBefore,
+        }, existing.schedule_version);
+        if (error) Alert.alert("Could not save", error.message);
+        else router.back();
+      } else {
+        const { error } = await createItem({
+          name: normalizedName,
+          scope,
+          storage,
+          spoil_on: spoilOnYmd,
+          quantity: q,
+          unit: unit.trim() || null,
+          notes: notes.trim() || null,
+          remind_me: remindMe,
+          remind_days_before: remindDaysBefore,
+        });
+        if (error) Alert.alert("Could not save", error.message);
+        else router.back();
+      }
+    } catch (err) {
+      Sentry.captureException(err);
+      Alert.alert("Unexpected error", "Something went wrong. Please try again.");
+    } finally {
       setSaving(false);
-      if (error) Alert.alert("Could not save", error.message);
-      else router.back();
-    } else {
-      const { error } = await createItem({
-        name: normalizedName,
-        scope,
-        storage,
-        spoil_on: spoilOnYmd,
-        quantity: q,
-        unit: unit.trim() || null,
-        notes: notes.trim() || null,
-        remind_me: remindMe,
-        remind_days_before: remindDaysBefore,
-      });
-      setSaving(false);
-      if (error) Alert.alert("Could not save", error.message);
-      else router.back();
     }
   }, [
     name,

@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
 import { supabase } from "@/lib/supabase";
+import * as Sentry from "@sentry/react-native";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
@@ -50,40 +51,48 @@ export default function JoinHouseholdScreen() {
       return;
     }
     setBusy(true);
-    const { data, error } = await supabase.rpc("join_household", { invite_code: trimmed });
-    setBusy(false);
-    if (error) {
-      if (Platform.OS === "web") window.alert(error.message);
-      else Alert.alert("Could not join", error.message);
-      return;
-    }
-    const res = data as JoinResult | null;
-    if (!res?.ok) {
-      const msg = joinErrorMessage(res?.error);
-      if (Platform.OS === "web") window.alert(msg);
-      else Alert.alert("Could not join", msg);
-      return;
-    }
-    await refreshProfile();
-    await refreshItems();
-    if (res.already_member) {
-      const title = "Already in";
-      const msg = "You are already part of this household.";
+    try {
+      const { data, error } = await supabase.rpc("join_household", { invite_code: trimmed });
+      if (error) {
+        if (Platform.OS === "web") window.alert(error.message);
+        else Alert.alert("Could not join", error.message);
+        return;
+      }
+      const res = data as JoinResult | null;
+      if (!res?.ok) {
+        const msg = joinErrorMessage(res?.error);
+        if (Platform.OS === "web") window.alert(msg);
+        else Alert.alert("Could not join", msg);
+        return;
+      }
+      await refreshProfile();
+      await refreshItems();
+      if (res.already_member) {
+        const title = "Already in";
+        const msg = "You are already part of this household.";
+        if (Platform.OS === "web") {
+          window.alert(msg);
+          router.back();
+        } else {
+          Alert.alert(title, msg, [{ text: "OK", onPress: () => router.back() }]);
+        }
+        return;
+      }
+      const title = "Welcome";
+      const msg = "You have joined the shared household.";
       if (Platform.OS === "web") {
         window.alert(msg);
         router.back();
       } else {
         Alert.alert(title, msg, [{ text: "OK", onPress: () => router.back() }]);
       }
-      return;
-    }
-    const title = "Welcome";
-    const msg = "You have joined the shared household.";
-    if (Platform.OS === "web") {
-      window.alert(msg);
-      router.back();
-    } else {
-      Alert.alert(title, msg, [{ text: "OK", onPress: () => router.back() }]);
+    } catch (err) {
+      Sentry.captureException(err);
+      const msg = "Something went wrong. Please try again.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Error", msg);
+    } finally {
+      setBusy(false);
     }
   }
 

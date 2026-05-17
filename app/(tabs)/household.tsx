@@ -1,6 +1,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { ThemeColors } from "@/constants/theme";
+import * as Sentry from "@sentry/react-native";
 import { radius, spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import {
@@ -114,95 +115,102 @@ export default function HouseholdScreen() {
     if (withSpinner) setLoading(true);
     const hid = profile.household_id;
 
-    const [{ data: hh, error: hhErr }, { data: mems, error: memErr }, { data: invs, error: invErr }] =
-      await Promise.all([
-        supabase.from("households").select("name").eq("id", hid).maybeSingle(),
-        supabase.from("household_members").select("user_id, role").eq("household_id", hid),
-        supabase
-          .from("household_invites")
-          .select("code, expires_at")
-          .eq("household_id", hid)
-          .is("revoked_at", null)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
+    try {
+      const [{ data: hh, error: hhErr }, { data: mems, error: memErr }, { data: invs, error: invErr }] =
+        await Promise.all([
+          supabase.from("households").select("name").eq("id", hid).maybeSingle(),
+          supabase.from("household_members").select("user_id, role").eq("household_id", hid),
+          supabase
+            .from("household_invites")
+            .select("code, expires_at")
+            .eq("household_id", hid)
+            .is("revoked_at", null)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
 
-    if (hhErr) {
-      Alert.alert("Could not load household", hhErr.message);
-      if (withSpinner) setLoading(false);
-      setRefreshing(false);
-      return;
-    }
-    setHouseholdName(hh?.name ?? "Kitchen");
+      if (hhErr) {
+        Alert.alert("Could not load household", hhErr.message);
+        return;
+      }
+      setHouseholdName(hh?.name ?? "Kitchen");
 
-    if (memErr) {
-      Alert.alert("Could not load members", memErr.message);
-      setMembers([]);
-    } else {
-      const rows = mems ?? [];
-      const parsedMembers: MemberRow[] = [];
-      let skippedMembers = 0;
-      for (const m of rows) {
-        const pr = parseHouseholdMemberRow(m);
-        if (!pr.ok) {
-          skippedMembers++;
-          continue;
+      if (memErr) {
+        Alert.alert("Could not load members", memErr.message);
+        setMembers([]);
+      } else {
+        const rows = mems ?? [];
+        const parsedMembers: MemberRow[] = [];
+        let skippedMembers = 0;
+        for (const m of rows) {
+          const pr = parseHouseholdMemberRow(m);
+          if (!pr.ok) {
+            skippedMembers++;
+            continue;
+          }
+          parsedMembers.push({
+            user_id: pr.value.user_id,
+            role: pr.value.role,
+            display_name: null,
+          });
         }
-        parsedMembers.push({
-          user_id: pr.value.user_id,
-          role: pr.value.role,
-          display_name: null,
-        });
-      }
-      if (skippedMembers > 0) {
-        Alert.alert("Members", "Some member rows could not be loaded.");
-      }
-      const ids = parsedMembers.map((m) => m.user_id);
-      let nameById: Record<string, string | null> = {};
-      if (ids.length > 0) {
-        const { data: profs, error: pErr } = await supabase.from("profiles").select("id, display_name").in("id", ids);
-        if (!pErr && profs) {
-          for (const p of profs) {
-            const pr = parseProfileIdDisplay(p);
-            if (pr.ok) nameById[pr.value.id] = pr.value.display_name;
+        if (skippedMembers > 0) {
+          Alert.alert("Members", "Some member rows could not be loaded.");
+        }
+        const ids = parsedMembers.map((m) => m.user_id);
+        let nameById: Record<string, string | null> = {};
+        if (ids.length > 0) {
+          const { data: profs, error: pErr } = await supabase.from("profiles").select("id, display_name").in("id", ids);
+          if (!pErr && profs) {
+            for (const p of profs) {
+              const pr = parseProfileIdDisplay(p);
+              if (pr.ok) nameById[pr.value.id] = pr.value.display_name;
+            }
           }
         }
+        setMembers(
+          parsedMembers.map((m) => ({
+            ...m,
+            display_name: nameById[m.user_id] ?? null,
+          }))
+        );
       }
-      setMembers(
-        parsedMembers.map((m) => ({
-          ...m,
-          display_name: nameById[m.user_id] ?? null,
-        }))
-      );
-    }
 
-    if (!invErr && invs) {
-      const inv = parseInviteRow(invs);
-      if (inv.ok && new Date(inv.value.expires_at).getTime() > Date.now()) {
-        setInvite(inv.value);
+      if (!invErr && invs) {
+        const inv = parseInviteRow(invs);
+        if (inv.ok && new Date(inv.value.expires_at).getTime() > Date.now()) {
+          setInvite(inv.value);
+        } else {
+          setInvite(null);
+        }
       } else {
         setInvite(null);
       }
-    } else {
-      setInvite(null);
+    } catch (err) {
+      Sentry.captureException(err);
+    } finally {
+      if (withSpinner) setLoading(false);
+      setRefreshing(false);
     }
-
-    if (withSpinner) setLoading(false);
-    setRefreshing(false);
   }, [user?.id, profile?.household_id]);
 
   useFocusEffect(
     useCallback(() => {
       const first = showInitialSpinner.current;
       showInitialSpinner.current = false;
-      void load(first);
+      load(first).catch((err) => Sentry.captureException(err));
     }, [load])
   );
 
   async function onRefresh() {
     setRefreshing(true);
-    await load(false);
+    try {
+      await load(false);
+    } catch (err) {
+      Sentry.captureException(err);
+      setRefreshing(false);
+    }
   }
 
   async function createInvite() {

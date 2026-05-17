@@ -382,6 +382,10 @@ create policy items_update on public.items
       scope = 'ours'
       or (scope = 'mine' and owner_user_id = auth.uid())
     )
+    -- owner_user_id may only be set to the current user or null; never to another user's id
+    and (owner_user_id is null or owner_user_id = auth.uid())
+    -- created_by is immutable; clients may not change it
+    and created_by = (select i.created_by from public.items i where i.id = items.id)
   );
 
 create policy items_delete on public.items

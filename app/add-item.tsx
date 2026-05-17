@@ -145,6 +145,7 @@ export default function AddItemScreen() {
         const { error } = await updateItem(id, {
           name: normalizedName,
           scope,
+          owner_user_id: scope === 'mine' ? profile!.id : null,
           storage,
           spoil_on: spoilOnYmd,
           quantity: q,

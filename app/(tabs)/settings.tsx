@@ -1,3 +1,4 @@
+import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { EditorialHeading } from "@/components/EditorialHeading";
 import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
@@ -40,6 +41,7 @@ export default function SettingsScreen() {
   const { items, refresh } = useItems();
   const [busy, setBusy] = useState(false);
   const [showDigestTime, setShowDigestTime] = useState(false);
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
 
   const prefs = profile?.notification_prefs;
 
@@ -78,6 +80,18 @@ export default function SettingsScreen() {
     },
     [prefs, updateNotificationPrefs, items]
   );
+
+  const doSignOut = () => {
+    void (async () => {
+      await signOut();
+      if (Platform.OS === "web") {
+        window.location.replace("/login");
+      } else {
+        await refresh();
+        router.replace("/(auth)/login");
+      }
+    })();
+  };
 
   if (!configured) return <Redirect href="/setup" />;
   if (!user || !profile || !prefs) return <Redirect href="/(auth)/login" />;
@@ -301,29 +315,25 @@ export default function SettingsScreen() {
       <Pressable
         style={[styles.signOutBtn, { backgroundColor: colors.faint }]}
         onPress={() => {
-          const doSignOut = () => {
-            void (async () => {
-              await signOut();
-              if (Platform.OS === "web") {
-                window.location.replace("/login");
-              } else {
-                await refresh();
-                router.replace("/(auth)/login");
-              }
-            })();
-          };
           if (Platform.OS === "web") {
             if (window.confirm("Sign out?")) doSignOut();
           } else {
-            Alert.alert("Sign out?", undefined, [
-              { text: "Cancel", style: "cancel" },
-              { text: "Sign out", style: "destructive", onPress: doSignOut },
-            ]);
+            setShowSignOutModal(true);
           }
         }}
       >
         <Text style={[styles.signOutText, { color: colors.danger }]}>Sign out</Text>
       </Pressable>
+
+      <ConfirmationModal
+        visible={showSignOutModal}
+        title="Sign out?"
+        message="Your items are safe — you can sign back in anytime."
+        confirmLabel="Sign out"
+        confirmDanger={true}
+        onConfirm={() => { setShowSignOutModal(false); doSignOut(); }}
+        onCancel={() => setShowSignOutModal(false)}
+      />
     </ScrollView>
   );
 }

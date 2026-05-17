@@ -7,12 +7,14 @@ import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
 import { MAX_ITEM_NAME_LENGTH, hasVisibleItemName, normalizeItemName } from "@/lib/itemName";
+import { calculateExpiry, suggestStorage, type ExpiryResult } from "@/lib/expiryEngine";
+import { detectItem } from "@/lib/keywordDetect";
 import { spoilOnFromShelf, toLocalDateString } from "@/lib/spoil";
 import type { ItemScope, StoragePlace } from "@/types";
 import * as Sentry from "@sentry/react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 
 const MAX_REMIND_DAYS = 365;
 const QUANTITY_PATTERN = /^(?:\d+\.?\d*|\.\d+)$/;
@@ -52,6 +54,8 @@ export default function AddItemScreen() {
   const [remindDays, setRemindDays] = useState(
     existing?.remind_days_before ? String(existing.remind_days_before) : "0"
   );
+  const [opened, setOpened] = useState(false);
+  const [expiryResult, setExpiryResult] = useState<ExpiryResult | null>(null);
   const [showExpiryPicker, setShowExpiryPicker] = useState(false);
   const [showRefPicker, setShowRefPicker] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -97,6 +101,32 @@ export default function AddItemScreen() {
       scan_code: undefined,
     });
   }, [scan_at, scan_name, scan_qty, scan_unit, scan_notes, scan_code]);
+
+  // Auto-detect when name, storage, or opened changes
+  useEffect(() => {
+    const detected = detectItem(name);
+    if (!detected) {
+      setExpiryResult(null);
+      return;
+    }
+    const suggestedStorage = suggestStorage(detected);
+    // Only auto-set storage when not editing an existing item
+    if (!id) {
+      setStorage(suggestedStorage);
+    }
+    const result = calculateExpiry(name, storage, opened);
+    setExpiryResult(result);
+    // Only auto-set expiry when not editing an existing item
+    if (!id) {
+      setExpiryDate(new Date(result.spoilDate + "T12:00:00"));
+      const newDays = Math.round(
+        (new Date(result.spoilDate + "T12:00:00").getTime() - new Date().setHours(12, 0, 0, 0)) /
+          (1000 * 60 * 60 * 24)
+      );
+      if (newDays > 0) setShelfDays(String(newDays));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, storage, opened]);
 
   const spoilOnYmd = useMemo(() => {
     if (spoilMode === "expiry") return toLocalDateString(expiryDate);
@@ -247,8 +277,29 @@ export default function AddItemScreen() {
         </Pressable>
       ) : null}
 
+      {expiryResult?.matchedItem ? (
+        <Text style={[styles.muted, { marginTop: 2, marginBottom: 4 }]}>
+          ✨ Auto-detected: {expiryResult.matchedItem.category}
+        </Text>
+      ) : null}
+
       <BucketPicker scope={scope} onChange={setScope} />
       <StoragePicker storage={storage} onChange={setStorage} />
+
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+        <View>
+          <Text style={[styles.label, { marginBottom: 0 }]}>Opened?</Text>
+          <Text style={[styles.hint, { marginTop: 0 }]}>(halves shelf life estimation)</Text>
+        </View>
+        <Switch
+          value={opened}
+          onValueChange={setOpened}
+          trackColor={{ false: colors.faint, true: colors.brand }}
+          thumbColor="#fff"
+          accessibilityLabel="Mark item as opened"
+        />
+      </View>
+
       <SpoilDateSection
         spoilMode={spoilMode}
         onSpoilModeChange={setSpoilMode}
@@ -266,6 +317,9 @@ export default function AddItemScreen() {
         minExpiryDate={today}
         spoilDateWarning={spoilDateWarning}
       />
+      {expiryResult?.matchedItem && expiryResult.message ? (
+        <Text style={[styles.muted, { marginTop: 2 }]}>{expiryResult.message}</Text>
+      ) : null}
 
       <Text style={styles.label}>Quantity (optional)</Text>
       <TextInput

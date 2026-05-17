@@ -2,14 +2,8 @@ import { useTheme } from "@/context/ThemeContext";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useRouter } from "expo-router";
 import React from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-const TAB_ICONS: Record<string, string> = {
-  index: "⌂",
-  household: "⌂⌂",
-  settings: "⚙",
-};
 
 function HomeIcon({ color, size }: { color: string; size: number }) {
   return (
@@ -46,7 +40,7 @@ export function FloatingTabBar({
   state,
   navigation,
 }: BottomTabBarProps) {
-  const { colors, isDark: dark } = useTheme();
+  const { isDark: dark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 

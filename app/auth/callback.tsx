@@ -13,7 +13,7 @@ export default function AuthCallback() {
       router.replace("/");
     }, 1000);
     return () => clearTimeout(timeout);
-  }, []);
+  }, [router]);
 
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>

@@ -1,19 +1,17 @@
 import { EditorialHeading } from "@/components/EditorialHeading";
 import { radius, spacing } from "@/constants/theme";
+import { useTheme } from "@/context/ThemeContext";
 import { lookupBarcodeProduct, type BarcodeLookupResult } from "@/lib/barcodeLookup";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type ScanRouteParams = {
   returnTo?: string;
@@ -22,8 +20,7 @@ type ScanRouteParams = {
 
 export default function ScanBarcodeScreen() {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
-  const { returnTo, itemId } = useLocalSearchParams<ScanRouteParams>();
+  const { itemId } = useLocalSearchParams<ScanRouteParams>();
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
   const [handledCode, setHandledCode] = useState<string | null>(null);
@@ -70,14 +67,6 @@ export default function ScanBarcodeScreen() {
     },
     [busy, handledCode, scanResult]
   );
-
-  const retryLookup = useCallback(async () => {
-    if (!handledCode || busy) return;
-    setBusy(true);
-    const result = await lookupBarcodeProduct(handledCode);
-    setBusy(false);
-    setScanResult(result);
-  }, [busy, handledCode]);
 
   const resetScan = useCallback(() => {
     setBusy(false);
@@ -186,9 +175,6 @@ export default function ScanBarcodeScreen() {
     </View>
   );
 }
-
-// Missing import fix
-import { useTheme } from "@/context/ThemeContext";
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#000" },

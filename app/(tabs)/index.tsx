@@ -34,13 +34,6 @@ const BAND_LABEL: Record<FreshnessBand, string> = {
   overdue: "Overdue",
 };
 
-const PILL_ROTATE: Record<FreshnessBand, string> = {
-  fresh: "-2.5deg",
-  soon: "-1.5deg",
-  today: "2deg",
-  overdue: "-3deg",
-};
-
 function BigNumber({
   n,
   sub,

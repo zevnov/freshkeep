@@ -13,7 +13,7 @@ import {
 import type { NotificationStyle } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Redirect, router } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Alert,
   Platform,

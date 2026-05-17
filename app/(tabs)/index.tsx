@@ -287,6 +287,30 @@ export default function HomeScreen() {
       {/* Hero card */}
       {renderHero()}
 
+      {/* Quick actions */}
+      <View style={styles.quickActions}>
+        <Pressable
+          onPress={() => router.push("/bulk-scan")}
+          style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
+          accessibilityRole="button"
+          accessibilityLabel="Open bulk scanner"
+        >
+          <Text style={[styles.quickActionText, { color: colors.text }]}>
+            📷 Bulk scan
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/receipt-scan")}
+          style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
+          accessibilityRole="button"
+          accessibilityLabel="Open receipt scanner"
+        >
+          <Text style={[styles.quickActionText, { color: colors.text }]}>
+            🧾 Receipt scan
+          </Text>
+        </Pressable>
+      </View>
+
       {/* Filter chips */}
       <View style={styles.chipRow}>
         {(["all", "ours", "mine"] as const).map((key) => {
@@ -446,6 +470,20 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: "700",
     letterSpacing: 0.4,
+  },
+  quickActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: spacing.sm,
+  },
+  quickActionBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+  },
+  quickActionText: {
+    fontSize: 13,
+    fontWeight: "600",
   },
   chipRow: {
     flexDirection: "row",

@@ -42,6 +42,8 @@ function RootStack() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="add-item" options={{ title: "Add item", presentation: "modal" }} />
         <Stack.Screen name="scan-barcode" options={{ title: "Scan barcode", presentation: "fullScreenModal" }} />
+        <Stack.Screen name="bulk-scan" options={{ title: "Bulk scanner", presentation: "fullScreenModal" }} />
+        <Stack.Screen name="receipt-scan" options={{ title: "Receipt scanner", presentation: "fullScreenModal" }} />
         <Stack.Screen name="join-household" options={{ title: "Join household", presentation: "modal" }} />
         <Stack.Screen name="item/[id]" options={{ headerShown: false }} />
       </Stack>

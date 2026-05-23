@@ -5,6 +5,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AppState, type AppStateStatus } from "react-native";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -136,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     return () => {
@@ -245,6 +247,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshProfile = useCallback(async () => {
     if (session?.user) await loadProfile(session.user.id);
   }, [loadProfile, session?.user]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      const prev = appStateRef.current;
+      if ((prev === "background" || prev === "inactive") && next === "active") {
+        void refreshProfile();
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, [refreshProfile]);
 
   const updateNotificationPrefs = useCallback(
     async (patch: Partial<NotificationPrefs>) => {

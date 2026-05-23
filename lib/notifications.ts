@@ -256,9 +256,7 @@ export async function rescheduleAllItems(items: ItemRow[], prefs: NotificationPr
 
   await ensureNotificationChannel();
   await cancelDigestNotification();
-  for (const item of items) {
-    await cancelItemNotifications(item.id);
-  }
+  await Promise.all(items.map((item) => cancelItemNotifications(item.id)));
 
   if (!prefs.masterEnabled) return;
   const anyBand = prefs.notifySoon || prefs.notifyToday || prefs.notifyOverdue;

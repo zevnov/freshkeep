@@ -45,6 +45,7 @@ type ItemsContextValue = {
 };
 
 const ItemsContext = createContext<ItemsContextValue | null>(null);
+const NOTIFICATION_RESCHEDULE_ERROR = "Notifications failed to reschedule";
 
 export function ItemsProvider({ children }: { children: React.ReactNode }) {
   const { user, profile, ensureProfile } = useAuth();
@@ -72,7 +73,11 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
         }
       }
       await rescheduleAllItems(items, profile.notification_prefs);
-    })().catch((err) => Sentry.captureException(err));
+      setError((prev) => (prev === NOTIFICATION_RESCHEDULE_ERROR ? null : prev));
+    })().catch((err) => {
+      Sentry.captureException(err);
+      setError(NOTIFICATION_RESCHEDULE_ERROR);
+    });
   }, [items, profile]);
 
   const refresh = useCallback(async () => {
@@ -121,7 +126,16 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       const prev = appStateRef.current;
       if ((prev === "background" || prev === "inactive") && next === "active") {
         const p = profileRef.current;
-        if (p) void rescheduleAllItems(itemsRef.current, p.notification_prefs);
+        if (p) {
+          void rescheduleAllItems(itemsRef.current, p.notification_prefs)
+            .then(() => {
+              setError((current) => (current === NOTIFICATION_RESCHEDULE_ERROR ? null : current));
+            })
+            .catch((err) => {
+              Sentry.captureException(err);
+              setError(NOTIFICATION_RESCHEDULE_ERROR);
+            });
+        }
       }
       appStateRef.current = next;
     });

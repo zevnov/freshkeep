@@ -2,6 +2,7 @@ import { EditorialHeading } from "@/components/EditorialHeading";
 import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import Constants from "expo-constants";
 import { Link, Redirect } from "expo-router";
 import { useState } from "react";
 import {
@@ -22,6 +23,7 @@ export default function SignupScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { configured, user, loading, signUp } = useAuth();
+  const appName = Constants.expoConfig?.name?.trim() || "Freshkeep";
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -59,7 +61,7 @@ export default function SignupScreen() {
       else Alert.alert("Check your inbox", msg);
       return;
     }
-    const msg = "Your account is ready.";
+    const msg = `${appName} is ready for your household.`;
     if (Platform.OS === 'web') window.alert(msg);
     else Alert.alert("Account created", msg);
   }

@@ -6,6 +6,7 @@ const appJson = require("./app.json");
 const supabaseUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? "").trim();
 const supabaseAnonKey = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
 const sentryDsn = (process.env.EXPO_PUBLIC_SENTRY_DSN ?? "").trim();
+const authDebugOAuthRedirect = (process.env.EXPO_PUBLIC_AUTH_DEBUG_OAUTH_REDIRECT ?? "").trim() === "true";
 const sentryOrg = (process.env.SENTRY_ORG ?? "").trim();
 const sentryProject = (process.env.SENTRY_PROJECT ?? "").trim();
 const sentryUrl = (process.env.SENTRY_URL ?? "").trim();
@@ -37,6 +38,7 @@ module.exports = {
       supabaseUrl,
       supabaseAnonKey,
       sentryDsn,
+      authDebugOAuthRedirect,
     },
   },
 };

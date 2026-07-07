@@ -76,7 +76,7 @@ function BigNumber({
 export default function HomeScreen() {
   const { colors } = useTheme();
   const { configured, user, profile } = useAuth();
-  const { items, loading, error, refresh } = useItems();
+  const { items, loading, isOffline, error, refresh } = useItems();
   const [filter, setFilter] = useState<Filter>("all");
   const insets = useSafeAreaInsets();
 
@@ -236,7 +236,15 @@ export default function HomeScreen() {
             color={colors.text}
           />
         </View>
-        <Text style={{ fontSize: 18, opacity: 0.5 }}>✦</Text>
+        {isOffline ? (
+          <View style={[styles.offlineBadge, { backgroundColor: colors.faint }]}>
+            <Text style={[styles.offlineBadgeText, { color: colors.textMuted }]}>
+              Offline
+            </Text>
+          </View>
+        ) : (
+          <Text style={{ fontSize: 18, opacity: 0.5 }}>✦</Text>
+        )}
       </View>
 
       {/* Stats row */}
@@ -417,6 +425,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     marginBottom: 2,
+  },
+  offlineBadge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    alignSelf: "center",
+  },
+  offlineBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   statsRow: {
     flexDirection: "row",

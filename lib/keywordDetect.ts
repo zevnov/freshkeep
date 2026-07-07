@@ -1,4 +1,5 @@
 import { EXPIRY_KNOWLEDGE, ExpiryItem } from "./expiryKnowledge";
+import { fetchCommunityExpiry, type CommunityExpiryItem } from "./communityExpiry";
 
 export interface DetectedItem {
   name: string;
@@ -7,6 +8,10 @@ export interface DetectedItem {
   freezerDays: number | null;
   perishable: boolean;
   matchedKeyword: string;
+  /** "local" = curated knowledge base, "community" = crowdsourced */
+  source: "local" | "community";
+  /** Number of community submissions behind this data (community source only). */
+  submission_count?: number;
 }
 
 function escapeRegex(value: string): string {
@@ -32,6 +37,7 @@ function toDetected(item: ExpiryItem, matchedKeyword: string): DetectedItem {
     freezerDays: item.freezerDays,
     perishable: item.perishable,
     matchedKeyword,
+    source: "local",
   };
 }
 
@@ -71,4 +77,34 @@ export function estimateExpiry(refDate: Date, days: number): Date {
   const d = new Date(refDate);
   d.setDate(d.getDate() + days);
   return d;
+}
+
+// ─── Async community fallback ────────────────────────────────────────────────
+
+function communityToDetected(item: CommunityExpiryItem): DetectedItem {
+  return {
+    name: item.normalized_name,
+    category: item.category,
+    fridgeDays: item.fridge_days,
+    freezerDays: item.freezer_days,
+    perishable: item.perishable,
+    matchedKeyword: item.normalized_name,
+    source: "community",
+    submission_count: item.submission_count,
+  };
+}
+
+/**
+ * Detect a food item from a text string, checking the local knowledge base
+ * first and falling back to the community database if no local match exists.
+ * Returns null if neither source has data for this item.
+ */
+export async function detectItemAsync(input: string): Promise<DetectedItem | null> {
+  // Check local curated knowledge first.
+  const local = detectItem(input);
+  if (local) return local;
+
+  // Fall back to community-sourced data.
+  const community = await fetchCommunityExpiry(input);
+  return community ? communityToDetected(community) : null;
 }

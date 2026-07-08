@@ -236,28 +236,31 @@ export default function AddItemScreen() {
         });
         if (error) Alert.alert("Could not save", error.message);
         else {
-          // Contribute to community knowledge if this is a new item unknown to the curated DB.
-          // Only fridge/freezer storage maps to a schema column — pantry/counter items have
-          // no day field to contribute to, so they're skipped rather than submitted as empty.
-          const localMatch = detectItem(normalizedName);
-          if (!localMatch && (storage === "fridge" || storage === "freezer")) {
+          // Contribute to community knowledge, but only when this is genuinely new
+          // information: no local OR community match (resubmitting an already-known
+          // match would just inflate submission_count without teaching anything new),
+          // not opened (an opened item's shelf life isn't the "base" value the table
+          // stores — there's no reliable way to undo the halving calculateExpiry applies
+          // on read, so submitting it would bias the shared average), fridge/freezer
+          // storage (the only ones with a schema column to contribute to), and a
+          // positive day count (an item spoiling today carries no useful shelf-life data).
+          if (!expiryResult?.matchedItem && !opened && (storage === "fridge" || storage === "freezer")) {
             const spoilDate = new Date(spoilOnYmd + "T12:00:00");
-            let daysFromToday = Math.round(
+            const daysFromToday = Math.round(
               (spoilDate.getTime() - new Date().setHours(12, 0, 0, 0)) / (1000 * 60 * 60 * 24)
             );
-            // The community value represents the base (unopened) shelf life — calculateExpiry
-            // halves it again for opened items on read, so undo that halving before submitting.
-            if (opened) daysFromToday *= 2;
-            submitCommunityExpiry({
-              normalized_name: normalizedName,
-              category: "community",
-              fridge_days: storage === "fridge" ? daysFromToday : null,
-              freezer_days: storage === "freezer" ? daysFromToday : null,
-              perishable: true,
-            }).catch((err) => {
-              // Fire-and-forget — don't block the save flow.
-              console.warn("community submission failed", err);
-            });
+            if (daysFromToday >= 1) {
+              submitCommunityExpiry({
+                normalized_name: normalizedName,
+                category: "community",
+                fridge_days: storage === "fridge" ? daysFromToday : null,
+                freezer_days: storage === "freezer" ? daysFromToday : null,
+                perishable: true,
+              }).catch((err) => {
+                // Fire-and-forget — don't block the save flow.
+                console.warn("community submission failed", err);
+              });
+            }
           }
           router.back();
         }
@@ -282,6 +285,7 @@ export default function AddItemScreen() {
     scope,
     storage,
     opened,
+    expiryResult,
     createItem,
     updateItem,
   ]);

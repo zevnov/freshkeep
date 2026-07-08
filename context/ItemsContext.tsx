@@ -155,7 +155,15 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
         .select("*")
         .eq("household_id", profile.household_id)
         .order("spoil_on", { ascending: true });
-      if (qerr) throw qerr;
+      if (qerr) {
+        // A response came back, so this is never a connectivity problem even if
+        // its message happens to contain a word like "timeout" — treat it as a
+        // real error rather than routing it through the offline/cache fallback.
+        setError(getErrorMessage(qerr));
+        setIsOffline(false);
+        setItems([]);
+        return;
+      }
       const rows = data ?? [];
       const mapped: ItemRow[] = [];
       let firstBad: string | null = null;

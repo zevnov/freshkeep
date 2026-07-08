@@ -45,6 +45,19 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Defensive validation: this function is the only write path (RLS blocks
+  -- direct table access), so a misbehaving or malicious authenticated client
+  -- could otherwise insert junk that skews the shared running average.
+  if p_name is null or length(trim(p_name)) = 0 or length(p_name) > 120 then
+    raise exception 'invalid p_name';
+  end if;
+  if p_fridge_days is not null and (p_fridge_days <= 0 or p_fridge_days > 3650) then
+    raise exception 'invalid p_fridge_days';
+  end if;
+  if p_freezer_days is not null and (p_freezer_days <= 0 or p_freezer_days > 3650) then
+    raise exception 'invalid p_freezer_days';
+  end if;
+
   insert into community_expiry_knowledge (normalized_name, category, fridge_days, freezer_days, perishable, submission_count)
   values (p_name, p_category, p_fridge_days, p_freezer_days, p_perishable, 1)
   on conflict (normalized_name) do update set

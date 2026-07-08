@@ -2,7 +2,7 @@ import { EditorialHeading } from "@/components/EditorialHeading";
 import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
-import Constants from "expo-constants";
+import { getAppName } from "@/lib/appInfo";
 import { Link, Redirect } from "expo-router";
 import { useState } from "react";
 import {
@@ -23,7 +23,7 @@ export default function LoginScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { configured, user, loading, signIn } = useAuth();
-  const appName = Constants.expoConfig?.name?.trim() || "Freshkeep";
+  const appName = getAppName();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);

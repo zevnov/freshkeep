@@ -142,19 +142,25 @@ export default function AddItemScreen() {
       return;
     }
 
-    // No local match — try community knowledge base (async).
+    // No local match — try community knowledge base (async), debounced so we
+    // don't fire a network request on every keystroke while typing.
     let cancelled = false;
-    detectItemAsync(name).then((communityMatch) => {
-      if (cancelled) return;
-      if (communityMatch) {
-        applyMatch(communityMatch);
-      } else {
-        // Neither local nor community — clear auto-detection.
-        setExpiryResult(null);
-        lastAutoStorageForRef.current = null;
-      }
-    });
-    return () => { cancelled = true; };
+    const timer = setTimeout(() => {
+      detectItemAsync(name).then((communityMatch) => {
+        if (cancelled) return;
+        if (communityMatch) {
+          applyMatch(communityMatch);
+        } else {
+          // Neither local nor community — clear auto-detection.
+          setExpiryResult(null);
+          lastAutoStorageForRef.current = null;
+        }
+      });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, storage, opened]);
 
@@ -231,18 +237,23 @@ export default function AddItemScreen() {
         if (error) Alert.alert("Could not save", error.message);
         else {
           // Contribute to community knowledge if this is a new item unknown to the curated DB.
+          // Only fridge/freezer storage maps to a schema column — pantry/counter items have
+          // no day field to contribute to, so they're skipped rather than submitted as empty.
           const localMatch = detectItem(normalizedName);
-          if (!localMatch) {
+          if (!localMatch && (storage === "fridge" || storage === "freezer")) {
             const spoilDate = new Date(spoilOnYmd + "T12:00:00");
-            const daysFromToday = Math.round(
+            let daysFromToday = Math.round(
               (spoilDate.getTime() - new Date().setHours(12, 0, 0, 0)) / (1000 * 60 * 60 * 24)
             );
+            // The community value represents the base (unopened) shelf life — calculateExpiry
+            // halves it again for opened items on read, so undo that halving before submitting.
+            if (opened) daysFromToday *= 2;
             submitCommunityExpiry({
               normalized_name: normalizedName,
               category: "community",
               fridge_days: storage === "fridge" ? daysFromToday : null,
               freezer_days: storage === "freezer" ? daysFromToday : null,
-              perishable: storage !== "pantry",
+              perishable: true,
             }).catch((err) => {
               // Fire-and-forget — don't block the save flow.
               console.warn("community submission failed", err);
@@ -270,6 +281,7 @@ export default function AddItemScreen() {
     todayYmd,
     scope,
     storage,
+    opened,
     createItem,
     updateItem,
   ]);
@@ -338,8 +350,7 @@ export default function AddItemScreen() {
                     }`
                   : ""
               })`
-            : ""}
-          : {expiryResult.matchedItem.category}
+            : `: ${expiryResult.matchedItem.category}`}
         </Text>
       ) : null}
 

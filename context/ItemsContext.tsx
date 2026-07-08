@@ -178,8 +178,13 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       void syncCache(profile.household_id, mapped);
     } catch (refreshError) {
       if (isNetworkError(refreshError)) {
-        const cachedItems = await readCachedItems(profile.household_id);
-        setItems(cachedItems);
+        try {
+          const cachedItems = await readCachedItems(profile.household_id);
+          setItems(cachedItems);
+        } catch (cacheReadError) {
+          Sentry.captureException(cacheReadError);
+          setItems([]);
+        }
         setIsOffline(true);
         setError(null);
       } else {
@@ -187,8 +192,9 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
         setIsOffline(false);
         setItems([]);
       }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [user?.id, profile, syncCache]);
 
   useEffect(() => {

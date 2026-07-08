@@ -8,8 +8,9 @@ import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
 import { MAX_ITEM_NAME_LENGTH, hasVisibleItemName, normalizeItemName } from "@/lib/itemName";
 import { calculateExpiry, suggestStorage, type ExpiryResult } from "@/lib/expiryEngine";
-import { detectItem } from "@/lib/keywordDetect";
+import { detectItem, detectItemAsync, type DetectedItem } from "@/lib/keywordDetect";
 import { spoilOnFromShelf, toLocalDateString } from "@/lib/spoil";
+import { submitCommunityExpiry } from "@/lib/communityExpiry";
 import type { ItemScope, StoragePlace } from "@/types";
 import * as Sentry from "@sentry/react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
@@ -61,6 +62,9 @@ export default function AddItemScreen() {
   const [saving, setSaving] = useState(false);
   const appliedScanAtRef = useRef<string | undefined>(undefined);
   const lastAutoStorageForRef = useRef<string | null>(null);
+  // Refs so async detection callbacks read current values, not stale closures.
+  const storageRef = useRef(storage);
+  const openedRef = useRef(opened);
 
   useEffect(() => {
     if (existing) {
@@ -105,31 +109,58 @@ export default function AddItemScreen() {
 
   // Auto-detect when name, storage, or opened changes
   useEffect(() => {
+    storageRef.current = storage;
+    openedRef.current = opened;
+
+    // Apply a detected match: suggest storage, calculate expiry, set dates.
+    // Reads storage/opened from refs so async callers get current values.
+    const applyMatch = (match: DetectedItem) => {
+      const suggestedStorage = suggestStorage(match);
+      let effectiveStorage = storageRef.current;
+      if (!id && lastAutoStorageForRef.current !== match.name) {
+        setStorage(suggestedStorage);
+        lastAutoStorageForRef.current = match.name;
+        effectiveStorage = suggestedStorage;
+      }
+      const result = calculateExpiry(name, effectiveStorage, openedRef.current, undefined, match);
+      setExpiryResult(result);
+      if (!id) {
+        setExpiryDate(new Date(result.spoilDate + "T12:00:00"));
+        const newDays = Math.round(
+          (new Date(result.spoilDate + "T12:00:00").getTime() - new Date().setHours(12, 0, 0, 0)) /
+            (1000 * 60 * 60 * 24)
+        );
+        if (newDays > 0) setShelfDays(String(newDays));
+      }
+    };
+
     const detected = detectItem(name);
-    if (!detected) {
-      setExpiryResult(null);
-      lastAutoStorageForRef.current = null;
+    if (detected) {
+      // Local curated match — use immediately.
+      applyMatch(detected);
+      lastAutoStorageForRef.current = detected.name;
       return;
     }
-    const suggestedStorage = suggestStorage(detected);
-    let effectiveStorage = storage;
-    // Auto-set storage once per detected item type (don't override manual picks)
-    if (!id && lastAutoStorageForRef.current !== detected.name) {
-      setStorage(suggestedStorage);
-      lastAutoStorageForRef.current = detected.name;
-      effectiveStorage = suggestedStorage;
-    }
-    const result = calculateExpiry(name, effectiveStorage, opened);
-    setExpiryResult(result);
-    // Only auto-set expiry when not editing an existing item
-    if (!id) {
-      setExpiryDate(new Date(result.spoilDate + "T12:00:00"));
-      const newDays = Math.round(
-        (new Date(result.spoilDate + "T12:00:00").getTime() - new Date().setHours(12, 0, 0, 0)) /
-          (1000 * 60 * 60 * 24)
-      );
-      if (newDays > 0) setShelfDays(String(newDays));
-    }
+
+    // No local match — try community knowledge base (async), debounced so we
+    // don't fire a network request on every keystroke while typing.
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      detectItemAsync(name).then((communityMatch) => {
+        if (cancelled) return;
+        if (communityMatch) {
+          applyMatch(communityMatch);
+        } else {
+          // Neither local nor community — clear auto-detection.
+          setExpiryResult(null);
+          lastAutoStorageForRef.current = null;
+        }
+      });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, storage, opened]);
 
@@ -204,7 +235,35 @@ export default function AddItemScreen() {
           remind_days_before: remindDaysBefore,
         });
         if (error) Alert.alert("Could not save", error.message);
-        else router.back();
+        else {
+          // Contribute to community knowledge, but only when this is genuinely new
+          // information: no local OR community match (resubmitting an already-known
+          // match would just inflate submission_count without teaching anything new),
+          // not opened (an opened item's shelf life isn't the "base" value the table
+          // stores — there's no reliable way to undo the halving calculateExpiry applies
+          // on read, so submitting it would bias the shared average), fridge/freezer
+          // storage (the only ones with a schema column to contribute to), and a
+          // positive day count (an item spoiling today carries no useful shelf-life data).
+          if (!expiryResult?.matchedItem && !opened && (storage === "fridge" || storage === "freezer")) {
+            const spoilDate = new Date(spoilOnYmd + "T12:00:00");
+            const daysFromToday = Math.round(
+              (spoilDate.getTime() - new Date().setHours(12, 0, 0, 0)) / (1000 * 60 * 60 * 24)
+            );
+            if (daysFromToday >= 1) {
+              submitCommunityExpiry({
+                normalized_name: normalizedName,
+                category: "community",
+                fridge_days: storage === "fridge" ? daysFromToday : null,
+                freezer_days: storage === "freezer" ? daysFromToday : null,
+                perishable: true,
+              }).catch((err) => {
+                // Fire-and-forget — don't block the save flow.
+                console.warn("community submission failed", err);
+              });
+            }
+          }
+          router.back();
+        }
       }
     } catch (err) {
       Sentry.captureException(err);
@@ -225,6 +284,8 @@ export default function AddItemScreen() {
     todayYmd,
     scope,
     storage,
+    opened,
+    expiryResult,
     createItem,
     updateItem,
   ]);
@@ -284,7 +345,16 @@ export default function AddItemScreen() {
 
       {expiryResult?.matchedItem ? (
         <Text style={[styles.muted, { marginTop: 2, marginBottom: 4 }]}>
-          ✨ Auto-detected: {expiryResult.matchedItem.category}
+          ✨ Auto-detected
+          {expiryResult.matchedItem.source === "community"
+            ? ` (community${
+                expiryResult.matchedItem.submission_count
+                  ? ` · ${expiryResult.matchedItem.submission_count} submission${
+                      expiryResult.matchedItem.submission_count === 1 ? "" : "s"
+                    }`
+                  : ""
+              })`
+            : `: ${expiryResult.matchedItem.category}`}
         </Text>
       ) : null}
 

@@ -4,6 +4,7 @@ import { cancelItemNotifications, rescheduleAllItems } from "@/lib/notifications
 import { parseItemRow } from "@/lib/supabaseRows";
 import { supabase } from "@/lib/supabase";
 import type { ItemRow, ItemScope, ItemStatus, StoragePlace } from "@/types";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Sentry from "@sentry/react-native";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
@@ -11,6 +12,7 @@ import { AppState, type AppStateStatus } from "react-native";
 type ItemsContextValue = {
   items: ItemRow[];
   loading: boolean;
+  isOffline: boolean;
   error: string | null;
   refresh: () => Promise<void>;
   createItem: (payload: {
@@ -46,10 +48,64 @@ type ItemsContextValue = {
 
 const ItemsContext = createContext<ItemsContextValue | null>(null);
 
+const ITEMS_CACHE_KEY_PREFIX = "freshkeep-items-cache";
+
+type CachedItemsPayload = {
+  items: ItemRow[];
+  savedAt: string;
+};
+
+function itemCacheKey(householdId: string): string {
+  return `${ITEMS_CACHE_KEY_PREFIX}:${householdId}`;
+}
+
+function isItemRowArray(value: unknown): value is ItemRow[] {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => {
+      if (!item || typeof item !== "object") return false;
+      const row = item as Partial<ItemRow>;
+      return typeof row.id === "string" && typeof row.name === "string" && typeof row.household_id === "string";
+    })
+  );
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return String(error);
+}
+
+function isNetworkError(error: unknown): boolean {
+  return /network request failed|failed to fetch|networkerror|network error|offline|timeout/i.test(
+    getErrorMessage(error)
+  );
+}
+
+async function writeCachedItems(householdId: string, items: ItemRow[]): Promise<void> {
+  const payload: CachedItemsPayload = {
+    items,
+    savedAt: new Date().toISOString(),
+  };
+  await AsyncStorage.setItem(itemCacheKey(householdId), JSON.stringify(payload));
+}
+
+async function readCachedItems(householdId: string): Promise<ItemRow[]> {
+  const raw = await AsyncStorage.getItem(itemCacheKey(householdId));
+  if (!raw) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object") return [];
+  const payload = parsed as Partial<CachedItemsPayload>;
+  return isItemRowArray(payload.items) ? payload.items : [];
+}
+
 export function ItemsProvider({ children }: { children: React.ReactNode }) {
   const { user, profile, ensureProfile } = useAuth();
   const [items, setItems] = useState<ItemRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Latest snapshot for AppState foreground reschedule only (wall clock may change without React state updates).
   const itemsRef = useRef<ItemRow[]>([]);
@@ -75,23 +131,39 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
     })().catch((err) => Sentry.captureException(err));
   }, [items, profile]);
 
+  const syncCache = useCallback(async (householdId: string, nextItems: ItemRow[]) => {
+    try {
+      await writeCachedItems(householdId, nextItems);
+    } catch (cacheError) {
+      Sentry.captureException(cacheError);
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!user?.id || !profile?.household_id) {
       setItems([]);
+      setIsOffline(false);
+      setError(null);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
-    const { data, error: qerr } = await supabase
-      .from("items")
-      .select("*")
-      .eq("household_id", profile.household_id)
-      .order("spoil_on", { ascending: true });
-    if (qerr) {
-      setError(qerr.message);
-      setItems([]);
-    } else {
+    try {
+      const { data, error: qerr } = await supabase
+        .from("items")
+        .select("*")
+        .eq("household_id", profile.household_id)
+        .order("spoil_on", { ascending: true });
+      if (qerr) {
+        // A response came back, so this is never a connectivity problem even if
+        // its message happens to contain a word like "timeout" — treat it as a
+        // real error rather than routing it through the offline/cache fallback.
+        setError(getErrorMessage(qerr));
+        setIsOffline(false);
+        setItems([]);
+        return;
+      }
       const rows = data ?? [];
       const mapped: ItemRow[] = [];
       let firstBad: string | null = null;
@@ -106,11 +178,32 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
             ? `Invalid item data: ${firstBad}`
             : `Some items could not be loaded (${firstBad}).`
         );
+      } else {
+        setError(null);
       }
       setItems(mapped);
+      setIsOffline(false);
+      void syncCache(profile.household_id, mapped);
+    } catch (refreshError) {
+      if (isNetworkError(refreshError)) {
+        try {
+          const cachedItems = await readCachedItems(profile.household_id);
+          setItems(cachedItems);
+        } catch (cacheReadError) {
+          Sentry.captureException(cacheReadError);
+          setItems([]);
+        }
+        setIsOffline(true);
+        setError(null);
+      } else {
+        setError(getErrorMessage(refreshError));
+        setIsOffline(false);
+        setItems([]);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [user?.id, profile]);
+  }, [user?.id, profile, syncCache]);
 
   useEffect(() => {
     void refresh();
@@ -170,10 +263,14 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       const pr = parseItemRow(data);
       if (!pr.ok) return { error: new Error(`Invalid item from server: ${pr.error}`) };
       const item = pr.value;
-      setItems((prev) => [...prev, item]);
+      setItems((prev) => {
+        const next = [...prev, item];
+        void syncCache(householdId, next);
+        return next;
+      });
       return { error: null, item };
     },
-    [user?.id, profile?.household_id, ensureProfile]
+    [user?.id, profile?.household_id, ensureProfile, syncCache]
   );
 
   const updateItem = useCallback(
@@ -223,15 +320,19 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       const pr = parseItemRow(data);
       if (!pr.ok) return { error: new Error(`Invalid item from server: ${pr.error}`) };
       const item = pr.value;
-      setItems((prev) => prev.map((i) => (i.id === id ? item : i)));
+      setItems((prev) => {
+        const next = prev.map((i) => (i.id === id ? item : i));
+        void syncCache(p.household_id, next);
+        return next;
+      });
       return { error: null, item };
     },
-    [profile, ensureProfile, refresh]
+    [profile, ensureProfile, refresh, syncCache]
   );
 
   const value = useMemo(
-    () => ({ items, loading, error, refresh, createItem, updateItem }),
-    [items, loading, error, refresh, createItem, updateItem]
+    () => ({ items, loading, isOffline, error, refresh, createItem, updateItem }),
+    [items, loading, isOffline, error, refresh, createItem, updateItem]
   );
 
   return <ItemsContext.Provider value={value}>{children}</ItemsContext.Provider>;

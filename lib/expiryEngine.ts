@@ -4,7 +4,7 @@ import { toLocalDateString } from "./spoil";
 
 export interface ExpiryResult {
   spoilDate: string;          // YYYY-MM-DD
-  confidence: "exact" | "estimated" | "unknown";
+  confidence: "exact" | "estimated" | "community" | "unknown";
   matchedItem: DetectedItem | null;
   message: string;            // Human-readable: "~5 days in fridge"
 }
@@ -12,17 +12,24 @@ export interface ExpiryResult {
 /**
  * Smart expiry calculator. Takes an item name, where it's stored, and whether it's opened,
  * and returns the best estimate for when it'll spoil.
+ *
+ * @param communityItem — Optional pre-fetched community data. When the local knowledge
+ *   base has no match, falls back to this instead of defaulting to 7 days.
  */
 export function calculateExpiry(
   itemName: string,
   storage: StoragePlace,
   opened: boolean,
-  referenceDate: Date = new Date()
+  referenceDate: Date = new Date(),
+  communityItem: DetectedItem | null = null
 ): ExpiryResult {
   const detected = detectItem(itemName);
 
-  // No match in knowledge base — manual entry needed
+  // No match in local knowledge base — try community fallback
   if (!detected) {
+    if (communityItem) {
+      return calcWithItem(communityItem, storage, opened, referenceDate, "community");
+    }
     return {
       spoilDate: toLocalDateString(addDays(referenceDate, 7)), // default 7 days
       confidence: "unknown",
@@ -31,35 +38,46 @@ export function calculateExpiry(
     };
   }
 
+  return calcWithItem(detected, storage, opened, referenceDate, "estimated");
+}
+
+function calcWithItem(
+  item: DetectedItem,
+  storage: StoragePlace,
+  opened: boolean,
+  referenceDate: Date,
+  confidence: ExpiryResult["confidence"]
+): ExpiryResult {
+
   // Determine base days from storage type
   let days: number;
   let storageLabel: string;
 
   switch (storage) {
     case "freezer":
-      if (detected.freezerDays != null) {
-        days = detected.freezerDays;
+      if (item.freezerDays != null) {
+        days = item.freezerDays;
         storageLabel = "frozen";
       } else {
         // Can't freeze this — fall back to fridge
-        days = detected.fridgeDays ?? 7;
+        days = item.fridgeDays ?? 7;
         storageLabel = "fridge";
       }
       break;
     case "pantry":
     case "counter":
-      if (!detected.perishable) {
+      if (!item.perishable) {
         days = 365; // Non-perishable = ~1 year
         storageLabel = storage;
       } else {
         // Perishable on counter — shorter than fridge
-        days = Math.round((detected.fridgeDays ?? 7) * 0.4);
+        days = Math.round((item.fridgeDays ?? 7) * 0.4);
         storageLabel = storage;
       }
       break;
     case "fridge":
     default:
-      days = detected.fridgeDays ?? 7;
+      days = item.fridgeDays ?? 7;
       storageLabel = "fridge";
       break;
   }
@@ -76,8 +94,8 @@ export function calculateExpiry(
 
   return {
     spoilDate,
-    confidence: "estimated",
-    matchedItem: detected,
+    confidence,
+    matchedItem: item,
     message,
   };
 }

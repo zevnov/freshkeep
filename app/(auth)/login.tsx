@@ -2,6 +2,7 @@ import { EditorialHeading } from "@/components/EditorialHeading";
 import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { getAppName } from "@/lib/appInfo";
 import { Link, Redirect } from "expo-router";
 import { useState } from "react";
 import {
@@ -22,6 +23,7 @@ export default function LoginScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { configured, user, loading, signIn } = useAuth();
+  const appName = getAppName();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -96,7 +98,7 @@ export default function LoginScreen() {
           style={{ marginTop: 12, marginBottom: 8 }}
         />
         <Text style={{ fontSize: 15, color: colors.textMuted, lineHeight: 22, marginBottom: 24 }}>
-          Track what spoils first.
+          Track what spoils first in {appName}.
         </Text>
 
         {/* Form card */}

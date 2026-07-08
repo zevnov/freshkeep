@@ -177,6 +177,11 @@ export default function ScanBarcodeScreen() {
 
             <Text style={[styles.resultTitle, { color: colors.text }]}>{scanResult.name ?? "Product not found"}</Text>
             <Text style={{ color: colors.textMuted, fontSize: 13 }}>Barcode: {scanResult.barcode}</Text>
+            {scanResult.notes ? (
+              <Text style={[styles.resultNote, { color: colors.textMuted }]}>
+                {scanResult.notes}
+              </Text>
+            ) : null}
             
             <View style={styles.resultActions}>
               <Pressable
@@ -279,6 +284,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   resultTitle: { fontSize: 20, fontWeight: "700", marginBottom: 4 },
+  resultNote: { fontSize: 13, lineHeight: 18, marginTop: 10 },
   resultActions: { marginTop: 20, gap: 10 },
   resultBtn: {
     paddingVertical: 14,

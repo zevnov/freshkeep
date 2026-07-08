@@ -2,6 +2,7 @@ import type { NotificationPrefs, ItemScope, StoragePlace } from "@/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/types";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { Session, User } from "@supabase/supabase-js";
+import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -113,6 +114,11 @@ function mapProfile(row: {
 const PROFILE_SELECT =
   "id, display_name, household_id, default_bucket, default_storage, notification_settings" as const;
 
+const authDebugOAuthRedirect =
+  Constants.expoConfig?.extra && typeof Constants.expoConfig.extra === "object"
+    ? (Constants.expoConfig.extra as { authDebugOAuthRedirect?: unknown }).authDebugOAuthRedirect === true
+    : false;
+
 /** Fetches profile with retries (helps flaky mobile networks / cold auth). */
 async function fetchProfileForUser(userId: string): Promise<Profile | null> {
   const maxAttempts = 3;
@@ -206,7 +212,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = useCallback(async () => {
     try {
       const redirectTo = Linking.createURL("auth/callback");
-      if (__DEV__) console.log("[OAuth] Add this exact URL to Supabase Redirect URLs:", redirectTo);
+      if (authDebugOAuthRedirect) {
+        console.log("[OAuth] Add this exact URL to Supabase Redirect URLs:", redirectTo);
+      }
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {

@@ -59,5 +59,11 @@ begin
 end;
 $$;
 
+-- Supabase's default privileges grant EXECUTE directly to anon/authenticated/
+-- service_role on every new function, bypassing the PUBLIC pseudo-role — so
+-- "revoke ... from public" alone does not stop anonymous callers. Revoke from
+-- anon explicitly; service_role already bypasses RLS everywhere and is never
+-- exposed to clients, so it's left with EXECUTE.
 revoke execute on function public.submit_community_expiry(text, text, int, int, boolean) from public;
+revoke execute on function public.submit_community_expiry(text, text, int, int, boolean) from anon;
 grant execute on function public.submit_community_expiry(text, text, int, int, boolean) to authenticated;

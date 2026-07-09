@@ -45,6 +45,32 @@ export type NotificationPrefs = {
   includeMine: boolean;
 };
 
+export type CreateItemPayload = {
+  scope: ItemScope;
+  name: string;
+  storage: StoragePlace;
+  spoil_on: string;
+  quantity: number | null;
+  unit: string | null;
+  notes: string | null;
+  remind_me: boolean;
+  remind_days_before: number;
+};
+
+export type UpdateItemPatch = Partial<{
+  scope: ItemScope;
+  name: string;
+  storage: StoragePlace;
+  spoil_on: string;
+  quantity: number | null;
+  unit: string | null;
+  notes: string | null;
+  remind_me: boolean;
+  remind_days_before: number;
+  status: ItemStatus;
+  owner_user_id: string | null;
+}>;
+
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   masterEnabled: true,
   notificationStyle: "individual",

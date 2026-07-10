@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import * as Sentry from "@sentry/react-native";
 import Constants from "expo-constants";
+import { registerBackgroundNotificationTaskAsync } from "@/lib/backgroundNotifications";
 import { ensureNotificationChannel } from "@/lib/notifications";
 import { Stack } from "expo-router";
 import { useEffect } from "react";
@@ -54,6 +55,7 @@ function RootStack() {
 function RootLayout() {
   useEffect(() => {
     ensureNotificationChannel().catch((err) => Sentry.captureException(err));
+    registerBackgroundNotificationTaskAsync().catch((err) => Sentry.captureException(err));
   }, []);
 
   return (

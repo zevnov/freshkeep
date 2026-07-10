@@ -3,6 +3,8 @@ import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
+import type { ExpiryItem } from "@/lib/expiryKnowledge";
+import { filterItemsByQuery, searchKnowledgeBase } from "@/lib/search";
 import {
   computeFreshnessBand,
   daysUntilSpoil,
@@ -21,6 +23,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -78,7 +81,10 @@ export default function HomeScreen() {
   const { configured, user, profile } = useAuth();
   const { items, loading, error, refresh } = useItems();
   const [filter, setFilter] = useState<Filter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const insets = useSafeAreaInsets();
+  const trimmedQuery = searchQuery.trim();
+  const isSearching = trimmedQuery.length > 0;
 
   useFocusEffect(
     useCallback(() => {
@@ -100,8 +106,14 @@ export default function HomeScreen() {
       filter === "all"
         ? activeItems
         : activeItems.filter((i) => i.scope === filter);
-    return sortItemsByUrgency(scoped, soonDays);
-  }, [activeItems, filter, soonDays]);
+    const searched = filterItemsByQuery(scoped, trimmedQuery);
+    return sortItemsByUrgency(searched, soonDays);
+  }, [activeItems, filter, soonDays, trimmedQuery]);
+
+  const knowledgeSuggestions = useMemo(
+    () => (isSearching ? searchKnowledgeBase(trimmedQuery) : []),
+    [isSearching, trimmedQuery]
+  );
 
   const counts = useMemo(() => {
     const fresh = activeItems.filter(
@@ -116,9 +128,6 @@ export default function HomeScreen() {
     ).length;
     return { fresh, soon, overdue };
   }, [activeItems, soonDays, todayYmd]);
-
-  if (!configured) return <Redirect href="/setup" />;
-  if (!user) return <Redirect href="/(auth)/login" />;
 
   const hero = filtered[0] ?? null;
 
@@ -239,77 +248,107 @@ export default function HomeScreen() {
         <Text style={{ fontSize: 18, opacity: 0.5 }}>✦</Text>
       </View>
 
-      {/* Stats row */}
-      <View style={styles.statsRow}>
-        {(
-          [
-            { band: "fresh" as const, label: "fresh" },
-            { band: "soon" as const, label: "use soon" },
-            { band: "overdue" as const, label: "overdue" },
-          ] as const
-        ).map(({ band, label }) => (
-          <View
-            key={band}
-            style={[
-              styles.statCard,
-              { backgroundColor: colors.bandBg[band] },
-            ]}
+      {/* Search bar */}
+      <View style={[styles.searchBar, { backgroundColor: colors.faint }]}>
+        <Text style={{ fontSize: 15, opacity: 0.5, color: colors.textMuted }}>⌕</Text>
+        <TextInput
+          style={[styles.searchInput, { color: colors.text }]}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search your items…"
+          placeholderTextColor={colors.textMuted}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          accessibilityLabel="Search items"
+        />
+        {searchQuery.length > 0 ? (
+          <Pressable
+            onPress={() => setSearchQuery("")}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
           >
-            <Text
-              style={{
-                fontSize: 30,
-                fontWeight: "700",
-                lineHeight: 30,
-                letterSpacing: -1,
-                color: colors.bandText[band],
-              }}
-            >
-              {counts[band === "fresh" ? "fresh" : band === "soon" ? "soon" : "overdue"]}
-            </Text>
-            <Text
-              style={{
-                fontSize: 9,
-                fontWeight: "700",
-                color: colors.bandText[band],
-                opacity: 0.7,
-                textTransform: "uppercase",
-                letterSpacing: 0.7,
-                marginTop: 4,
-                textAlign: "center",
-              }}
-            >
-              {label}
-            </Text>
+            <Text style={{ fontSize: 15, color: colors.textMuted }}>✕</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {!isSearching ? (
+        <>
+          {/* Stats row */}
+          <View style={styles.statsRow}>
+            {(
+              [
+                { band: "fresh" as const, label: "fresh" },
+                { band: "soon" as const, label: "use soon" },
+                { band: "overdue" as const, label: "overdue" },
+              ] as const
+            ).map(({ band, label }) => (
+              <View
+                key={band}
+                style={[
+                  styles.statCard,
+                  { backgroundColor: colors.bandBg[band] },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: 30,
+                    fontWeight: "700",
+                    lineHeight: 30,
+                    letterSpacing: -1,
+                    color: colors.bandText[band],
+                  }}
+                >
+                  {counts[band === "fresh" ? "fresh" : band === "soon" ? "soon" : "overdue"]}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 9,
+                    fontWeight: "700",
+                    color: colors.bandText[band],
+                    opacity: 0.7,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.7,
+                    marginTop: 4,
+                    textAlign: "center",
+                  }}
+                >
+                  {label}
+                </Text>
+              </View>
+            ))}
           </View>
-        ))}
-      </View>
 
-      {/* Hero card */}
-      {renderHero()}
+          {/* Hero card */}
+          {renderHero()}
 
-      {/* Quick actions */}
-      <View style={styles.quickActions}>
-        <Pressable
-          onPress={() => router.push("/bulk-scan")}
-          style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
-          accessibilityRole="button"
-          accessibilityLabel="Open bulk scanner"
-        >
-          <Text style={[styles.quickActionText, { color: colors.text }]}>
-            📷 Bulk scan
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push("/receipt-scan")}
-          style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
-          accessibilityRole="button"
-          accessibilityLabel="Open receipt scanner"
-        >
-          <Text style={[styles.quickActionText, { color: colors.text }]}>
-            🧾 Receipt scan
-          </Text>
-        </Pressable>
-      </View>
+          {/* Quick actions */}
+          <View style={styles.quickActions}>
+            <Pressable
+              onPress={() => router.push("/bulk-scan")}
+              style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Open bulk scanner"
+            >
+              <Text style={[styles.quickActionText, { color: colors.text }]}>
+                📷 Bulk scan
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/receipt-scan")}
+              style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Open receipt scanner"
+            >
+              <Text style={[styles.quickActionText, { color: colors.text }]}>
+                🧾 Receipt scan
+              </Text>
+            </Pressable>
+          </View>
+        </>
+      ) : null}
 
       {/* Filter chips */}
       <View style={styles.chipRow}>
@@ -342,7 +381,42 @@ export default function HomeScreen() {
         })}
       </View>
     </>
-  ), [displayName, counts, colors, filter, renderHero]);
+  ), [displayName, counts, colors, filter, renderHero, isSearching, searchQuery]);
+
+  const goToKnowledgeSuggestion = useCallback((entry: ExpiryItem) => {
+    router.push({
+      pathname: "/add-item",
+      params: { scan_at: String(Date.now()), scan_name: entry.name },
+    });
+  }, []);
+
+  const listFooter = useCallback(() => {
+    if (!isSearching || knowledgeSuggestions.length === 0) return null;
+    return (
+      <View style={styles.suggestionsBlock}>
+        <Text style={[styles.suggestionsLabel, { color: colors.textMuted }]}>
+          Not in your list yet
+        </Text>
+        {knowledgeSuggestions.map((entry) => (
+          <Pressable
+            key={entry.name}
+            style={[styles.suggestionRow, { backgroundColor: colors.faint }]}
+            onPress={() => goToKnowledgeSuggestion(entry)}
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${entry.name}`}
+          >
+            <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14, textTransform: "capitalize" }}>
+              {entry.name}
+            </Text>
+            <Text style={{ color: colors.brand, fontSize: 13, fontWeight: "700" }}>+ Add</Text>
+          </Pressable>
+        ))}
+      </View>
+    );
+  }, [isSearching, knowledgeSuggestions, colors, goToKnowledgeSuggestion]);
+
+  if (!configured) return <Redirect href="/setup" />;
+  if (!user) return <Redirect href="/(auth)/login" />;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.bg }]}>
@@ -385,11 +459,14 @@ export default function HomeScreen() {
           }}
           ListHeaderComponent={listHeader}
           ListHeaderComponentStyle={{ marginBottom: spacing.sm }}
+          ListFooterComponent={listFooter}
           ListEmptyComponent={
             <Text
               style={[styles.empty, { color: colors.textMuted }]}
             >
-              Nothing here yet — add something with the + button.
+              {isSearching
+                ? `No items match "${trimmedQuery}".`
+                : "Nothing here yet — add something with the + button."}
             </Text>
           }
           renderItem={renderItem}
@@ -406,6 +483,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: spacing.lg,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: spacing.md,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    padding: 0,
+  },
+  suggestionsBlock: {
+    marginTop: spacing.md,
+    gap: 6,
+  },
+  suggestionsLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderRadius: radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   header: {
     flexDirection: "row",

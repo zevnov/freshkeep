@@ -1,8 +1,16 @@
 import { useAuth } from "@/context/AuthContext";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { normalizeItemName } from "@/lib/itemName";
+import { isNetworkErrorMessage } from "@/lib/networkError";
 import { cancelItemNotifications, rescheduleAllItems } from "@/lib/notifications";
-import { applySyncResolutions, enqueue, mutationKey, peek, type QueuedMutation } from "@/lib/offlineQueue";
+import {
+  applySyncResolutions,
+  enqueue,
+  mutationKey,
+  peek,
+  type EnqueueResult,
+  type QueuedMutation,
+} from "@/lib/offlineQueue";
 import { parseItemRow } from "@/lib/supabaseRows";
 import { supabase } from "@/lib/supabase";
 import { generateUUID } from "@/lib/uuid";
@@ -48,16 +56,18 @@ async function writeItemsCache(householdId: string, items: ItemRow[]): Promise<v
   }
 }
 
-function isNetworkErrorMessage(message: string): boolean {
-  return /network request failed|failed to fetch|networkerror|typeerror/i.test(message);
-}
-
-function notifyConflict(message: string): void {
+function notifyUser(title: string, message: string): void {
   if (Platform.OS === "web") {
     window.alert(message);
   } else {
-    Alert.alert("Synced with changes from another device", message);
+    Alert.alert(title, message);
   }
+}
+
+function enqueueFailureError(result: Extract<EnqueueResult, { ok: false }>, verb: string): Error {
+  return result.reason === "full"
+    ? new Error(`Too many pending changes. Connect to the internet to sync before ${verb} more.`)
+    : new Error("Couldn't save this change on your device. Free up some storage and try again.");
 }
 
 export function ItemsProvider({ children }: { children: React.ReactNode }) {
@@ -126,7 +136,9 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       .eq("household_id", householdId)
       .order("spoil_on", { ascending: true });
     if (qerr) {
-      const cached = await readItemsCache(householdId);
+      // Only a genuine connectivity failure falls back to cache; a server-side error
+      // (RLS, auth, bad request) must surface, not be masked by stale data.
+      const cached = isNetworkErrorMessage(qerr.message) ? await readItemsCache(householdId) : null;
       if (cached) {
         setItems(cached);
       } else {
@@ -206,10 +218,10 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       applyItems((prev) => [...prev, optimisticItem]);
 
       const queueAndReturn = async () => {
-        const { dropped } = await enqueue({ type: "create", tempId, payload, timestamp: nowIso });
-        if (dropped) {
+        const result = await enqueue({ type: "create", tempId, payload, timestamp: nowIso });
+        if (!result.ok) {
           applyItems((prev) => prev.filter((i) => i.id !== tempId));
-          return { error: new Error("Too many pending changes. Connect to the internet to sync before adding more.") };
+          return { error: enqueueFailureError(result, "adding") };
         }
         return { error: null, item: optimisticItem };
       };
@@ -273,29 +285,29 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       const nowIso = new Date().toISOString();
       const nextVersion = currentVersion + 1;
       const optimisticItem: ItemRow | undefined = existingItem
-        ? {
-            ...existingItem,
-            ...patch,
-            owner_user_id: patch.owner_user_id ?? existingItem.owner_user_id,
-            schedule_version: nextVersion,
-            updated_at: nowIso,
-          }
+        ? { ...existingItem, ...patch, schedule_version: nextVersion, updated_at: nowIso }
         : undefined;
       if (optimisticItem) {
         const nextItem = optimisticItem;
         applyItems((prev) => prev.map((i) => (i.id === id ? nextItem : i)));
       }
+      const rollbackOptimistic = () => {
+        if (existingItem) {
+          applyItems((prev) => prev.map((i) => (i.id === id ? existingItem : i)));
+        }
+      };
 
       const queueAndReturn = async () => {
-        const { dropped } = await enqueue({
+        const result = await enqueue({
           type: "update",
           itemId: id,
           patch,
           expectedScheduleVersion: currentVersion,
           timestamp: nowIso,
         });
-        if (dropped) {
-          return { error: new Error("Too many pending changes. Connect to the internet to sync before editing more.") };
+        if (!result.ok) {
+          rollbackOptimistic();
+          return { error: enqueueFailureError(result, "editing") };
         }
         return { error: null, item: optimisticItem };
       };
@@ -313,10 +325,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
           .maybeSingle();
         if (uerr) {
           if (isNetworkErrorMessage(uerr.message)) return queueAndReturn();
-          if (existingItem) {
-            const rollback = existingItem;
-            applyItems((prev) => prev.map((i) => (i.id === id ? rollback : i)));
-          }
+          rollbackOptimistic();
           return { error: new Error(uerr.message) };
         }
         if (!data) {
@@ -331,10 +340,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
         if (isNetworkErrorMessage(err.message)) return queueAndReturn();
-        if (existingItem) {
-          const rollback = existingItem;
-          applyItems((prev) => prev.map((i) => (i.id === id ? rollback : i)));
-        }
+        rollbackOptimistic();
         return { error: err };
       }
     },
@@ -356,9 +362,25 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       const creates = batch.filter((m): m is Extract<QueuedMutation, { type: "create" }> => m.type === "create");
       const updates = batch.filter((m): m is Extract<QueuedMutation, { type: "update" }> => m.type === "update");
 
-      const idMap = new Map<string, string>();
-      const resolutions = new Map<string, QueuedMutation | null>();
+      // Persist each mutation's outcome immediately so a kill mid-sync can't replay
+      // already-committed creates as duplicates. Storage failures here are non-fatal:
+      // worst case the mutation replays and the server-side version check rejects it.
+      const persistResolutions = async (stepResolutions: Map<string, QueuedMutation | null>) => {
+        try {
+          await applySyncResolutions(stepResolutions);
+        } catch (err) {
+          Sentry.captureException(err);
+        }
+      };
+
+      // Batched view updates: id -> replacement row (or null to remove). Applied once at
+      // the end so a 100-mutation drain does one state/cache write, not one per mutation.
+      const stateChanges = new Map<string, ItemRow | null>();
+      const droppedTempIds = new Set<string>();
+      const pendingTempIds = new Set<string>();
+      const failedNames: string[] = [];
       let hadConflict = false;
+      let needsRefresh = false;
 
       for (const mutation of creates) {
         const key = mutationKey(mutation);
@@ -380,27 +402,66 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
           created_by: uid,
           updated_at: nowIso,
         };
+
+        const dropCreateAndDependents = async (alsoDropLocalItem: boolean) => {
+          const stepResolutions = new Map<string, QueuedMutation | null>([[key, null]]);
+          for (const u of updates) {
+            if (u.itemId === mutation.tempId) stepResolutions.set(mutationKey(u), null);
+          }
+          droppedTempIds.add(mutation.tempId);
+          if (alsoDropLocalItem) stateChanges.set(mutation.tempId, null);
+          await persistResolutions(stepResolutions);
+        };
+
         try {
           const { data, error: ierr } = await supabase.from("items").insert(row).select("*").single();
-          if (ierr) continue; // still offline-ish or server rejected; retry next sync
+          if (ierr) {
+            if (isNetworkErrorMessage(ierr.message)) {
+              pendingTempIds.add(mutation.tempId); // transient; retry whole chain next sync
+            } else {
+              // Server rejected the payload outright — retrying is pointless. Drop it and tell the user.
+              failedNames.push(mutation.payload.name);
+              await dropCreateAndDependents(true);
+            }
+            continue;
+          }
           const pr = parseItemRow(data);
-          if (!pr.ok) continue;
-          idMap.set(mutation.tempId, pr.value.id);
-          resolutions.set(key, null);
+          if (!pr.ok) {
+            // The row WAS inserted; leaving the mutation queued would duplicate it next sync.
+            needsRefresh = true;
+            await dropCreateAndDependents(false);
+            continue;
+          }
           const resolved = pr.value;
-          applyItems((prev) => prev.map((i) => (i.id === mutation.tempId ? resolved : i)));
-        } catch {
-          // leave unresolved; retried on next online transition
+          stateChanges.set(mutation.tempId, resolved);
+          // Resolve the create and remap dependent updates to the real row id in the same
+          // persisted step, so a crash after this point replays nothing and orphans nothing.
+          const stepResolutions = new Map<string, QueuedMutation | null>([[key, null]]);
+          for (let i = 0; i < updates.length; i++) {
+            if (updates[i].itemId === mutation.tempId) {
+              const rewritten = { ...updates[i], itemId: resolved.id };
+              stepResolutions.set(mutationKey(updates[i]), rewritten);
+              updates[i] = rewritten;
+            }
+          }
+          await persistResolutions(stepResolutions);
+        } catch (e) {
+          const err = e instanceof Error ? e : new Error(String(e));
+          if (isNetworkErrorMessage(err.message)) {
+            pendingTempIds.add(mutation.tempId);
+          } else {
+            Sentry.captureException(err);
+            failedNames.push(mutation.payload.name);
+            await dropCreateAndDependents(true);
+          }
         }
       }
 
       for (const mutation of updates) {
-        const key = mutationKey(mutation);
-        const remappedId = idMap.get(mutation.itemId);
-        const pendingCreate = remappedId == null && creates.some((c) => c.tempId === mutation.itemId);
-        if (pendingCreate) continue; // its create failed this round too; retry both next sync
+        if (droppedTempIds.has(mutation.itemId)) continue; // dropped along with its failed create
+        if (pendingTempIds.has(mutation.itemId)) continue; // its create retries next sync; keep order
 
-        const resolvedId = remappedId ?? mutation.itemId;
+        const key = mutationKey(mutation);
         const nowIso = new Date().toISOString();
         const nextPatch = {
           ...mutation.patch,
@@ -411,37 +472,69 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
           const { data, error: uerr } = await supabase
             .from("items")
             .update(nextPatch)
-            .eq("id", resolvedId)
+            .eq("id", mutation.itemId)
             .eq("schedule_version", mutation.expectedScheduleVersion)
             .select("*")
             .maybeSingle();
           if (uerr) {
-            if (resolvedId !== mutation.itemId) resolutions.set(key, { ...mutation, itemId: resolvedId });
-            continue;
+            if (!isNetworkErrorMessage(uerr.message)) {
+              // Permanent server rejection: drop it and refresh to restore server truth.
+              failedNames.push(mutation.patch.name ?? "an item edit");
+              needsRefresh = true;
+              await persistResolutions(new Map([[key, null]]));
+            }
+            continue; // transient failures stay queued for the next sync
           }
           if (!data) {
             hadConflict = true;
-            resolutions.set(key, null); // server wins; drop the stale patch
+            needsRefresh = true;
+            await persistResolutions(new Map([[key, null]])); // server wins; drop the stale patch
             continue;
           }
           const pr = parseItemRow(data);
           if (!pr.ok) {
-            if (resolvedId !== mutation.itemId) resolutions.set(key, { ...mutation, itemId: resolvedId });
+            // Update landed but the response didn't parse; drop the mutation and re-fetch.
+            needsRefresh = true;
+            await persistResolutions(new Map([[key, null]]));
             continue;
           }
-          resolutions.set(key, null);
-          const resolved = pr.value;
-          applyItems((prev) => prev.map((i) => (i.id === resolvedId ? resolved : i)));
-        } catch {
-          if (resolvedId !== mutation.itemId) resolutions.set(key, { ...mutation, itemId: resolvedId });
+          stateChanges.set(mutation.itemId, pr.value);
+          await persistResolutions(new Map([[key, null]]));
+        } catch (e) {
+          const err = e instanceof Error ? e : new Error(String(e));
+          if (!isNetworkErrorMessage(err.message)) {
+            Sentry.captureException(err);
+            failedNames.push(mutation.patch.name ?? "an item edit");
+            needsRefresh = true;
+            await persistResolutions(new Map([[key, null]]));
+          }
         }
       }
 
-      if (resolutions.size > 0) await applySyncResolutions(resolutions);
-      if (hadConflict) {
-        notifyConflict("Someone else updated an item while you were offline. We've refreshed it with their latest changes.");
-        void refresh();
+      if (stateChanges.size > 0) {
+        applyItems((prev) =>
+          prev.flatMap((i) => {
+            if (!stateChanges.has(i.id)) return [i];
+            const change = stateChanges.get(i.id);
+            return change ? [change] : [];
+          })
+        );
       }
+      if (hadConflict) {
+        notifyUser(
+          "Synced with changes from another device",
+          "Someone else updated an item while you were offline. We've refreshed it with their latest changes."
+        );
+      }
+      if (failedNames.length > 0) {
+        const shown = failedNames.slice(0, 3).join(", ");
+        const more = failedNames.length > 3 ? ` and ${failedNames.length - 3} more` : "";
+        notifyUser(
+          "Some offline changes couldn't sync",
+          `The server rejected: ${shown}${more}. These changes were discarded.`
+        );
+      }
+      if (needsRefresh) void refresh();
     } finally {
       syncingRef.current = false;
     }

@@ -9,7 +9,8 @@ export type SpoilMode = "expiry" | "shelf";
 export type ItemRow = {
   id: string;
   household_id: string;
-  owner_user_id: string;
+  /** Null for shared ("ours") items that no one has claimed. */
+  owner_user_id: string | null;
   scope: ItemScope;
   name: string;
   storage: StoragePlace;

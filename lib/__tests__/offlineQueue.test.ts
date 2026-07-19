@@ -43,11 +43,12 @@ describe("enqueue / peek", () => {
 
   it("drops mutations once the queue is at capacity", async () => {
     for (let i = 0; i < MAX_QUEUE_SIZE; i++) {
-      const { dropped } = await enqueue(createMutation(`item-${i}`));
-      expect(dropped).toBe(false);
+      const result = await enqueue(createMutation(`item-${i}`));
+      expect(result.ok).toBe(true);
     }
-    const { dropped, queue } = await enqueue(createMutation("overflow"));
-    expect(dropped).toBe(true);
+    const result = await enqueue(createMutation("overflow"));
+    expect(result).toEqual({ ok: false, reason: "full" });
+    const queue = await peek();
     expect(queue).toHaveLength(MAX_QUEUE_SIZE);
   });
 });

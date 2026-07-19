@@ -70,6 +70,27 @@ function enqueueFailureError(result: Extract<EnqueueResult, { ok: false }>, verb
     : new Error("Couldn't save this change on your device. Free up some storage and try again.");
 }
 
+/** Shared by the live create path and queued-mutation sync so the insert shape can't drift between them. */
+function buildInsertRow(householdId: string, uid: string, payload: CreateItemPayload, nowIso: string) {
+  return {
+    household_id: householdId,
+    owner_user_id: uid,
+    scope: payload.scope,
+    name: normalizeItemName(payload.name),
+    storage: payload.storage,
+    spoil_on: payload.spoil_on,
+    quantity: payload.quantity,
+    unit: payload.unit,
+    notes: payload.notes,
+    remind_me: payload.remind_me,
+    remind_days_before: payload.remind_days_before,
+    status: "active" as const,
+    schedule_version: 0,
+    created_by: uid,
+    updated_at: nowIso,
+  };
+}
+
 export function ItemsProvider({ children }: { children: React.ReactNode }) {
   const { user, profile, ensureProfile } = useAuth();
   const { isConnected } = useNetworkStatus();
@@ -228,23 +249,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
 
       if (!isOnlineRef.current) return queueAndReturn();
 
-      const row = {
-        household_id: householdId,
-        owner_user_id: uid,
-        scope: payload.scope,
-        name: normalizeItemName(payload.name),
-        storage: payload.storage,
-        spoil_on: payload.spoil_on,
-        quantity: payload.quantity,
-        unit: payload.unit,
-        notes: payload.notes,
-        remind_me: payload.remind_me,
-        remind_days_before: payload.remind_days_before,
-        status: "active" as const,
-        schedule_version: 0,
-        created_by: uid,
-        updated_at: nowIso,
-      };
+      const row = buildInsertRow(householdId, uid, payload, nowIso);
       try {
         const { data, error: ierr } = await supabase.from("items").insert(row).select("*").single();
         if (ierr) {
@@ -385,23 +390,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       for (const mutation of creates) {
         const key = mutationKey(mutation);
         const nowIso = new Date().toISOString();
-        const row = {
-          household_id: householdId,
-          owner_user_id: uid,
-          scope: mutation.payload.scope,
-          name: normalizeItemName(mutation.payload.name),
-          storage: mutation.payload.storage,
-          spoil_on: mutation.payload.spoil_on,
-          quantity: mutation.payload.quantity,
-          unit: mutation.payload.unit,
-          notes: mutation.payload.notes,
-          remind_me: mutation.payload.remind_me,
-          remind_days_before: mutation.payload.remind_days_before,
-          status: "active" as const,
-          schedule_version: 0,
-          created_by: uid,
-          updated_at: nowIso,
-        };
+        const row = buildInsertRow(householdId, uid, mutation.payload, nowIso);
 
         const dropCreateAndDependents = async (alsoDropLocalItem: boolean) => {
           const stepResolutions = new Map<string, QueuedMutation | null>([[key, null]]);

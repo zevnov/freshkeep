@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { ExpiryItem } from "@/lib/expiryKnowledge";
-import { filterItemsByQuery, searchKnowledgeBase } from "@/lib/search";
+import { filterItemsByQuery, normalizeQuery, searchKnowledgeBase } from "@/lib/search";
 import {
   computeFreshnessBand,
   daysUntilSpoil,
@@ -110,10 +110,13 @@ export default function HomeScreen() {
     return sortItemsByUrgency(searched, soonDays);
   }, [activeItems, filter, soonDays, trimmedQuery]);
 
-  const knowledgeSuggestions = useMemo(
-    () => (isSearching ? searchKnowledgeBase(trimmedQuery) : []),
-    [isSearching, trimmedQuery]
-  );
+  const knowledgeSuggestions = useMemo(() => {
+    if (!isSearching) return [];
+    const ownedNames = new Set(activeItems.map((i) => normalizeQuery(i.name)));
+    return searchKnowledgeBase(trimmedQuery).filter(
+      (entry) => !ownedNames.has(normalizeQuery(entry.name))
+    );
+  }, [isSearching, trimmedQuery, activeItems]);
 
   const counts = useMemo(() => {
     const fresh = activeItems.filter(
@@ -230,7 +233,7 @@ export default function HomeScreen() {
     );
   }, [soonDays, todayYmd, colors]);
 
-  const listHeader = useCallback(() => (
+  const listHeaderElement = useMemo(() => (
     <>
       {/* Page header */}
       <View style={styles.header}>
@@ -390,7 +393,7 @@ export default function HomeScreen() {
     });
   }, []);
 
-  const listFooter = useCallback(() => {
+  const listFooterElement = useMemo(() => {
     if (!isSearching || knowledgeSuggestions.length === 0) return null;
     return (
       <View style={styles.suggestionsBlock}>
@@ -457,9 +460,9 @@ export default function HomeScreen() {
             paddingBottom: insets.bottom + 120,
             gap: spacing.sm,
           }}
-          ListHeaderComponent={listHeader}
+          ListHeaderComponent={listHeaderElement}
           ListHeaderComponentStyle={{ marginBottom: spacing.sm }}
-          ListFooterComponent={listFooter}
+          ListFooterComponent={listFooterElement}
           ListEmptyComponent={
             <Text
               style={[styles.empty, { color: colors.textMuted }]}

@@ -1,4 +1,5 @@
 import type { NotificationPrefs } from "@/types";
+import { isNetworkErrorMessage } from "@/lib/networkError";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { fetchProfileForUser, type Profile } from "@/lib/profile";
 import type { Session, User } from "@supabase/supabase-js";
@@ -33,8 +34,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function mapAuthNetworkError(err: Error): Error {
-  const m = err.message;
-  if (/network request failed|failed to fetch|networkerror|typeerror/i.test(m)) {
+  if (isNetworkErrorMessage(err.message)) {
     return new Error(
       "Cannot reach Supabase. Check EXPO_PUBLIC_SUPABASE_URL and key in .env (no quotes or trailing spaces), then run npx expo start -c. On a phone, use your cloud https://…supabase.co URL or your PC’s LAN IP for local Supabase—not localhost."
     );

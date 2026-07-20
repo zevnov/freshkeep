@@ -4,10 +4,18 @@ import * as SecureStore from "expo-secure-store";
 
 const extra = Constants.expoConfig?.extra as { supabaseUrl?: string; supabaseAnonKey?: string } | undefined;
 
+// Without an explicit keychainAccessible, iOS defaults to WHEN_UNLOCKED — unreadable while
+// the device is locked, which is exactly when background tasks commonly run. AFTER_FIRST_UNLOCK
+// keeps the item readable in that case while still requiring at least one unlock since boot
+// (THIS_DEVICE_ONLY additionally excludes it from iCloud Keychain backup/sync). Ignored on Android.
+const secureStoreOptions: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+};
+
 const SecureStoreAdapter = {
-  getItem: (key: string) => SecureStore.getItemAsync(key),
-  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
-  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
+  getItem: (key: string) => SecureStore.getItemAsync(key, secureStoreOptions),
+  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value, secureStoreOptions),
+  removeItem: (key: string) => SecureStore.deleteItemAsync(key, secureStoreOptions),
 };
 
 /** Prefer env (Metro inlines EXPO_PUBLIC_*); fall back to app.config.js `extra` from dotenv. */

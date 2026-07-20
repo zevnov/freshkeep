@@ -9,7 +9,8 @@ export type SpoilMode = "expiry" | "shelf";
 export type ItemRow = {
   id: string;
   household_id: string;
-  owner_user_id: string;
+  /** Null for shared ("ours") items that no one has claimed. */
+  owner_user_id: string | null;
   scope: ItemScope;
   name: string;
   storage: StoragePlace;
@@ -44,6 +45,32 @@ export type NotificationPrefs = {
   digestMinute: number;
   includeMine: boolean;
 };
+
+export type CreateItemPayload = {
+  scope: ItemScope;
+  name: string;
+  storage: StoragePlace;
+  spoil_on: string;
+  quantity: number | null;
+  unit: string | null;
+  notes: string | null;
+  remind_me: boolean;
+  remind_days_before: number;
+};
+
+export type UpdateItemPatch = Partial<{
+  scope: ItemScope;
+  name: string;
+  storage: StoragePlace;
+  spoil_on: string;
+  quantity: number | null;
+  unit: string | null;
+  notes: string | null;
+  remind_me: boolean;
+  remind_days_before: number;
+  status: ItemStatus;
+  owner_user_id: string | null;
+}>;
 
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   masterEnabled: true,

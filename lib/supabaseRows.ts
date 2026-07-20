@@ -12,7 +12,7 @@ export type HouseholdRole = (typeof HOUSEHOLD_ROLES)[number];
 export type ItemRowDb = {
   id: string;
   household_id: string;
-  owner_user_id: string;
+  owner_user_id: string | null;
   scope: string;
   name: string;
   storage: string;
@@ -86,8 +86,8 @@ export function parseItemRow(raw: unknown): ParseResult<ItemRow> {
   if (!id.ok) return id;
   const household_id = reqString(raw, "household_id");
   if (!household_id.ok) return household_id;
-  const owner_user_id = reqString(raw, "owner_user_id");
-  if (!owner_user_id.ok) return owner_user_id;
+  // Nullable: unclaimed "ours" items store no owner (add-item sends owner_user_id: null).
+  const owner_user_id = optString(raw.owner_user_id);
   const name = reqString(raw, "name");
   if (!name.ok) return name;
 
@@ -120,7 +120,7 @@ export function parseItemRow(raw: unknown): ParseResult<ItemRow> {
     value: {
       id: id.value,
       household_id: household_id.value,
-      owner_user_id: owner_user_id.value,
+      owner_user_id,
       scope,
       name: name.value,
       storage,

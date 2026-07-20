@@ -38,7 +38,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const pickerTheme = isDark ? "dark" : "light";
   const { configured, user, profile, signOut, updateNotificationPrefs } = useAuth();
-  const { items, refresh } = useItems();
+  const { items } = useItems();
   const [busy, setBusy] = useState(false);
   const [showDigestTime, setShowDigestTime] = useState(false);
   const [showSignOutModal, setShowSignOutModal] = useState(false);
@@ -87,7 +87,6 @@ export default function SettingsScreen() {
       if (Platform.OS === "web") {
         window.location.replace("/login");
       } else {
-        await refresh();
         router.replace("/(auth)/login");
       }
     })();

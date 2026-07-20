@@ -59,7 +59,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     savePreference();
   }, [preference]);
 
-  const colorScheme: AppColorScheme = preference === 'system' ? (system ?? 'light') : preference;
+  const colorScheme: AppColorScheme = isLoading
+    ? (system ?? 'light')
+    : preference === 'system' ? (system ?? 'light') : preference;
   const isDark = colorScheme === "dark";
 
   const value = useMemo<ThemeContextValue>(() => {
@@ -70,9 +72,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       colors: isDark ? darkColors : lightColors,
       isDark,
     };
-  }, [preference, colorScheme]);
-
-  if (isLoading) return null;
+  }, [preference, colorScheme, isDark]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

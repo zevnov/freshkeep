@@ -255,22 +255,35 @@ export async function rescheduleAllItems(items: ItemRow[], prefs: NotificationPr
   if (!N) return;
 
   await ensureNotificationChannel();
-  await cancelDigestNotification();
-  for (const item of items) {
-    await cancelItemNotifications(item.id);
-  }
 
-  if (!prefs.masterEnabled) return;
   const anyBand = prefs.notifySoon || prefs.notifyToday || prefs.notifyOverdue;
-  if (!anyBand) return;
+  const digestMode = prefs.masterEnabled && anyBand && prefs.notificationStyle === "digest";
+  const individualMode = prefs.masterEnabled && anyBand && prefs.notificationStyle !== "digest";
+  const active = items.filter((i) => i.status === "active");
 
-  if (prefs.notificationStyle === "digest") {
+  // Schedule what should exist first, then cancel what's now stale. Each schedule call
+  // reuses a deterministic identifier, so it overwrites any prior notification under that
+  // id rather than leaving a gap — if the task is killed partway through, items already
+  // processed keep a valid (old-or-new) notification instead of none at all.
+  if (digestMode) {
     await scheduleDigestNotification(items, prefs);
-    return;
+  } else {
+    await cancelDigestNotification();
   }
 
-  const active = items.filter((i) => i.status === "active");
-  for (const item of active) {
-    await scheduleItemNotifications(item, prefs);
+  if (individualMode) {
+    for (const item of active) {
+      await scheduleItemNotifications(item, prefs);
+    }
+  } else {
+    for (const item of active) {
+      await cancelItemNotifications(item.id);
+    }
+  }
+
+  // Items that are no longer active (consumed/trashed) never go through the loop above.
+  const activeIds = new Set(active.map((i) => i.id));
+  for (const item of items) {
+    if (!activeIds.has(item.id)) await cancelItemNotifications(item.id);
   }
 }

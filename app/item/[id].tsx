@@ -11,6 +11,7 @@ import {
 } from "@/lib/spoil";
 import type { FreshnessBand } from "@/types";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -45,6 +46,8 @@ export default function ItemDetailScreen() {
   const { items, updateItem, loading } = useItems();
 
   const item = items.find((i) => i.id === id);
+  const versionRef = useRef(item?.schedule_version ?? 0);
+  versionRef.current = item?.schedule_version ?? 0;
 
   if (!user) return <Redirect href="/(auth)/login" />;
 
@@ -105,7 +108,7 @@ export default function ItemDetailScreen() {
     if (Platform.OS === "web") {
       const confirmed = window.confirm(label);
       if (!confirmed) return;
-      const error = await applyStatus();
+      const error = await applyStatus(versionRef.current);
       if (error) window.alert("Could not update: " + error.message);
       else router.back();
       return;
@@ -118,7 +121,7 @@ export default function ItemDetailScreen() {
         style: status === "consumed" ? "default" : "destructive",
         onPress: () => {
           void (async () => {
-            const error = await applyStatus(item?.schedule_version ?? 0);
+            const error = await applyStatus(versionRef.current);
             if (error) Alert.alert("Could not update", error.message);
             else router.back();
           })();

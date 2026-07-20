@@ -93,10 +93,19 @@ export default function ItemDetailScreen() {
     const itemId = item!.id;
     const label = status === "consumed" ? "Mark as used?" : "Discard this item?";
 
+    const applyStatus = async (expectedVersion?: number): Promise<Error | null> => {
+      try {
+        const { error } = await updateItem(itemId, { status }, expectedVersion);
+        return error;
+      } catch (e) {
+        return e instanceof Error ? e : new Error(String(e));
+      }
+    };
+
     if (Platform.OS === "web") {
       const confirmed = window.confirm(label);
       if (!confirmed) return;
-      const { error } = await updateItem(itemId, { status });
+      const error = await applyStatus();
       if (error) window.alert("Could not update: " + error.message);
       else router.back();
       return;
@@ -109,7 +118,7 @@ export default function ItemDetailScreen() {
         style: status === "consumed" ? "default" : "destructive",
         onPress: () => {
           void (async () => {
-            const { error } = await updateItem(itemId, { status }, item?.schedule_version ?? 0);
+            const error = await applyStatus(item?.schedule_version ?? 0);
             if (error) Alert.alert("Could not update", error.message);
             else router.back();
           })();

@@ -86,7 +86,7 @@ export function parseItemRow(raw: unknown): ParseResult<ItemRow> {
   if (!id.ok) return id;
   const household_id = reqString(raw, "household_id");
   if (!household_id.ok) return household_id;
-  // Nullable: unclaimed "ours" items store no owner (add-item sends owner_user_id: null).
+  // Nullable: unclaimed "ours" items store no owner (add-item's edit path sends owner_user_id: null).
   const owner_user_id = optString(raw.owner_user_id);
   const name = reqString(raw, "name");
   if (!name.ok) return name;

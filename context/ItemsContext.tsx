@@ -56,7 +56,7 @@ async function writeItemsCache(householdId: string, items: ItemRow[]): Promise<v
   }
 }
 
-function notifyUser(title: string, message: string): void {
+export function notifyUser(title: string, message: string): void {
   if (Platform.OS === "web") {
     window.alert(message);
   } else {
@@ -151,11 +151,21 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { data, error: qerr } = await supabase
-      .from("items")
-      .select("*")
-      .eq("household_id", householdId)
-      .order("spoil_on", { ascending: true });
+    // The query await itself can throw (auth lock contention, SecureStore failures); route
+    // that through the same handling as a returned error so setLoading(false) still runs.
+    let data: unknown[] | null = null;
+    let qerr: { message: string } | null = null;
+    try {
+      const res = await supabase
+        .from("items")
+        .select("*")
+        .eq("household_id", householdId)
+        .order("spoil_on", { ascending: true });
+      data = res.data;
+      qerr = res.error;
+    } catch (e) {
+      qerr = e instanceof Error ? e : new Error(String(e));
+    }
     if (qerr) {
       // Only a genuine connectivity failure falls back to cache; a server-side error
       // (RLS, auth, bad request) must surface, not be masked by stale data.
@@ -182,8 +192,15 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
             : `Some items could not be loaded (${firstBad}).`
         );
       }
-      setItems(mapped);
-      void writeItemsCache(householdId, mapped);
+      // Server rows can't include optimistic items whose creates are still queued; keep
+      // those (appended, as when they were added) or every refresh wipes them until sync.
+      const pendingCreates = (await peek()).filter(
+        (m): m is Extract<QueuedMutation, { type: "create" }> => m.type === "create"
+      );
+      const pendingTempIds = new Set(pendingCreates.map((m) => m.tempId));
+      const merged = [...mapped, ...itemsRef.current.filter((i) => pendingTempIds.has(i.id))];
+      setItems(merged);
+      void writeItemsCache(householdId, merged);
     }
     setLoading(false);
   }, [user?.id, profile]);
@@ -383,6 +400,10 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       const stateChanges = new Map<string, ItemRow | null>();
       const droppedTempIds = new Set<string>();
       const pendingTempIds = new Set<string>();
+      // Real id -> tempId for creates resolved in this batch: an update remapped to the real
+      // id must also claim the optimistic tempId slot (state still keys the item by tempId),
+      // and a resolved create missing from state entirely gets re-inserted at the end.
+      const tempIdByResolvedId = new Map<string, string>();
       const failedNames: string[] = [];
       let hadConflict = false;
       let needsRefresh = false;
@@ -423,6 +444,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
           }
           const resolved = pr.value;
           stateChanges.set(mutation.tempId, resolved);
+          tempIdByResolvedId.set(resolved.id, mutation.tempId);
           // Resolve the create and remap dependent updates to the real row id in the same
           // persisted step, so a crash after this point replays nothing and orphans nothing.
           const stepResolutions = new Map<string, QueuedMutation | null>([[key, null]]);
@@ -488,6 +510,10 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
             continue;
           }
           stateChanges.set(mutation.itemId, pr.value);
+          // If this update targeted a create resolved above, state still holds the item under
+          // its tempId — the edited row must win that slot too, not just the real id.
+          const createdTempId = tempIdByResolvedId.get(mutation.itemId);
+          if (createdTempId) stateChanges.set(createdTempId, pr.value);
           await persistResolutions(new Map([[key, null]]));
         } catch (e) {
           const err = e instanceof Error ? e : new Error(String(e));
@@ -501,13 +527,31 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (stateChanges.size > 0) {
-        applyItems((prev) =>
-          prev.flatMap((i) => {
-            if (!stateChanges.has(i.id)) return [i];
+        applyItems((prev) => {
+          // A create and its follow-up update resolve to the same row id, and a mid-sync
+          // refresh may already have delivered that id: emit each resolved row once.
+          const seenIds = new Set<string>();
+          const next = prev.flatMap((i) => {
+            if (!stateChanges.has(i.id)) {
+              seenIds.add(i.id);
+              return [i];
+            }
             const change = stateChanges.get(i.id);
-            return change ? [change] : [];
-          })
-        );
+            if (!change || seenIds.has(change.id)) return [];
+            seenIds.add(change.id);
+            return [change];
+          });
+          // A resolved create whose tempId slot is gone from state (a refresh wiped it
+          // mid-sync) must be re-inserted, not dropped — it exists on the server.
+          for (const tempId of tempIdByResolvedId.values()) {
+            const change = stateChanges.get(tempId);
+            if (change && !seenIds.has(change.id)) {
+              seenIds.add(change.id);
+              next.push(change);
+            }
+          }
+          return next;
+        });
       }
       if (hadConflict) {
         notifyUser(

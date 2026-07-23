@@ -14,7 +14,7 @@ import type { ItemScope, StoragePlace } from "@/types";
 import * as Sentry from "@sentry/react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 
 const MAX_REMIND_DAYS = 365;
 const QUANTITY_PATTERN = /^(?:\d+\.?\d*|\.\d+)$/;
@@ -63,7 +63,7 @@ export default function AddItemScreen() {
   const lastAutoStorageForRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (existing) {
+    if (existing && initialRef.current?.id !== existing.id) {
       initialRef.current = existing;
       setName(existing.name);
       setScope(existing.scope);
@@ -138,8 +138,8 @@ export default function AddItemScreen() {
     const days = Math.max(1, parseInt(shelfDays, 10) || 1);
     return spoilOnFromShelf(toLocalDateString(referenceDate), days);
   }, [spoilMode, expiryDate, referenceDate, shelfDays]);
-  const today = useMemo(() => new Date(), []);
-  const todayYmd = useMemo(() => toLocalDateString(today), [today]);
+  const today = new Date();
+  const todayYmd = toLocalDateString(today);
   const spoilDateWarning = useMemo(() => {
     if (spoilOnYmd >= todayYmd) return null;
     return spoilMode === "expiry"
@@ -150,26 +150,36 @@ export default function AddItemScreen() {
   const onSave = useCallback(async () => {
     const normalizedName = normalizeItemName(name);
     if (!hasVisibleItemName(normalizedName)) {
-      Alert.alert("Name required", "Give this item a name.");
+      const msg = "Give this item a name.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Name required", msg);
       return;
     }
     if (normalizedName.length > MAX_ITEM_NAME_LENGTH) {
-      Alert.alert("Name too long", `Keep the item name under ${MAX_ITEM_NAME_LENGTH} characters.`);
+      const msg = `Keep the item name under ${MAX_ITEM_NAME_LENGTH} characters.`;
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Name too long", msg);
       return;
     }
     if (spoilOnYmd < todayYmd) {
-      Alert.alert("Spoil date", "Choose today or a future date for the spoil date.");
+      const msg = "Choose today or a future date for the spoil date.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Spoil date", msg);
       return;
     }
     const trimmedQuantity = quantity.trim();
     if (trimmedQuantity && !QUANTITY_PATTERN.test(trimmedQuantity)) {
-      Alert.alert("Quantity", "Use a plain number for quantity.");
+      const msg = "Use a plain number for quantity.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Quantity", msg);
       return;
     }
     const q = trimmedQuantity ? Number(trimmedQuantity) : null;
     const rd = parseInt(remindDays, 10);
     if (Number.isFinite(rd) && rd > MAX_REMIND_DAYS) {
-      Alert.alert("Reminder days", `Choose ${MAX_REMIND_DAYS} days or fewer.`);
+      const msg = `Choose ${MAX_REMIND_DAYS} days or fewer.`;
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Reminder days", msg);
       return;
     }
     const remindDaysBefore = Number.isFinite(rd) && rd > 0 ? rd : 0;
@@ -189,8 +199,10 @@ export default function AddItemScreen() {
           remind_me: remindMe,
           remind_days_before: remindDaysBefore,
         }, existing.schedule_version);
-        if (error) Alert.alert("Could not save", error.message);
-        else router.back();
+        if (error) {
+          if (Platform.OS === "web") window.alert(error.message);
+          else Alert.alert("Could not save", error.message);
+        } else router.back();
       } else {
         const { error } = await createItem({
           name: normalizedName,
@@ -203,12 +215,16 @@ export default function AddItemScreen() {
           remind_me: remindMe,
           remind_days_before: remindDaysBefore,
         });
-        if (error) Alert.alert("Could not save", error.message);
-        else router.back();
+        if (error) {
+          if (Platform.OS === "web") window.alert(error.message);
+          else Alert.alert("Could not save", error.message);
+        } else router.back();
       }
     } catch (err) {
       Sentry.captureException(err);
-      Alert.alert("Unexpected error", "Something went wrong. Please try again.");
+      const msg = "Something went wrong. Please try again.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Unexpected error", msg);
     } finally {
       setSaving(false);
     }

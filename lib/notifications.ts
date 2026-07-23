@@ -7,12 +7,12 @@ import { addDaysLocal, computeFreshnessBand, parseLocalDate, toLocalDateString }
 type ExpoNotifications = typeof import("expo-notifications");
 
 /**
+ * Web: `expo-notifications` has no native implementation, so all scheduling stays a silent no-op.
  * Expo Go on Android (SDK 53+): `expo-notifications` native APIs are disabled; use a dev build to test alerts.
  * @see https://docs.expo.dev/develop/development-builds/introduction/
  */
-export const nativeNotificationsSupported = !(
-  Constants.appOwnership === "expo" && Platform.OS === "android"
-);
+export const nativeNotificationsSupported =
+  Platform.OS !== "web" && !(Constants.appOwnership === "expo" && Platform.OS === "android");
 
 let notificationsModule: ExpoNotifications | null = null;
 

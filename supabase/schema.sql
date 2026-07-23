@@ -113,7 +113,7 @@ create table if not exists public.household_members (
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households (id) on delete cascade,
-  owner_user_id uuid not null references auth.users (id) on delete cascade,
+  owner_user_id uuid references auth.users (id) on delete cascade,
   scope text not null check (scope in ('ours', 'mine')),
   name text not null,
   storage text not null check (storage in ('fridge', 'freezer', 'pantry', 'counter')),

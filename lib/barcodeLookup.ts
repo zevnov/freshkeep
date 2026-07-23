@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 export type BarcodeLookupResult = {
@@ -23,6 +24,17 @@ export async function lookupBarcodeProduct(barcode: string): Promise<BarcodeLook
     });
     const { data, error } = await Promise.race([invokePromise, timeoutPromise]);
     if (error) {
+      // Non-2xx from the edge function: surface its specific message (timeout/unavailable) when present.
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const body = (await error.context.json()) as { notes?: unknown } | null;
+          if (body && typeof body.notes === "string" && body.notes) {
+            return { barcode: code, name: null, quantity: null, unit: null, notes: body.notes };
+          }
+        } catch {
+          /* non-JSON error body — fall through to the generic message */
+        }
+      }
       return { barcode: code, name: null, quantity: null, unit: null, notes: "Could not fetch product details." };
     }
     if (!data || data.barcode !== code) {

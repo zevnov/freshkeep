@@ -60,7 +60,7 @@ export default function ItemDetailScreen() {
         ]}
       >
         <Text style={{ color: colors.textMuted, textAlign: "center" }}>
-          This item is gone or you don't have access.
+          This item is gone or you don&apos;t have access.
         </Text>
         <Pressable
           style={[styles.primaryBtn, { backgroundColor: colors.brandBtn }]}

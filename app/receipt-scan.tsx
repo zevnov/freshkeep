@@ -4,6 +4,7 @@ import { radius, spacing } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
 import { useBulkItemQueue } from "@/hooks/useBulkItemQueue";
 import { mergeBulkQueueItems, parseReceiptLines } from "@/lib/bulkScanItems";
+import * as Sentry from "@sentry/react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useCallback, useRef, useState } from "react";
@@ -63,20 +64,26 @@ export default function ReceiptScanScreen() {
 
   const handleTakePhoto = useCallback(async () => {
     if (!cameraRef.current) return;
-    const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
-    if (photo) {
-      setPhotoUri(photo.uri);
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
+      if (photo) {
+        setPhotoUri(photo.uri);
+      }
+    } catch (err) {
+      Sentry.captureException(err);
+    } finally {
+      setShowCamera(false);
     }
-    setShowCamera(false);
   }, []);
 
   const handleAutoDetect = useCallback(() => {
     if (!inputText.trim()) return;
+    const captured = inputText;
     setDetecting(true);
     setTimeout(() => {
-      const newItems = parseReceiptLines(inputText);
+      const newItems = parseReceiptLines(captured);
       setScannedItems((prev) => mergeBulkQueueItems(prev, newItems));
-      setInputText("");
+      setInputText((prev) => (prev === captured ? "" : prev));
       setDetecting(false);
     }, 300);
   }, [inputText, setScannedItems]);
@@ -92,7 +99,7 @@ export default function ReceiptScanScreen() {
     } else {
       router.back();
     }
-  }, [hasUnsavedWork]);
+  }, [hasUnsavedWork, setShowExitModal]);
 
   const renderItem = useCallback(
     ({ item }: { item: (typeof scannedItems)[number] }) => {

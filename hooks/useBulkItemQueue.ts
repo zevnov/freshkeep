@@ -1,8 +1,7 @@
-import { useItems } from "@/context/ItemsContext";
+import { notifyUser, useItems } from "@/context/ItemsContext";
 import type { BulkQueueItem } from "@/lib/bulkScanItems";
 import { calculateExpiry } from "@/lib/expiryEngine";
 import { useCallback, useState } from "react";
-import { Alert } from "react-native";
 
 export type BulkSaveFailure = {
   name: string;
@@ -127,7 +126,7 @@ export function useBulkItemQueue() {
           : "";
 
       if (result.saved === 0) {
-        Alert.alert(
+        notifyUser(
           "Could not save items",
           result.failures.length === 1
             ? `${result.failures[0].name}: ${result.failures[0].message}`
@@ -136,10 +135,9 @@ export function useBulkItemQueue() {
         return;
       }
 
-      Alert.alert(
+      notifyUser(
         "Partially saved",
-        `${result.saved} of ${result.total} items saved. Could not save: ${failedNames}${more}. Failed items remain in your list.`,
-        [{ text: "OK" }]
+        `${result.saved} of ${result.total} items saved. Could not save: ${failedNames}${more}. Failed items remain in your list.`
       );
     },
     [saveAll]

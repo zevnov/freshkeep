@@ -157,7 +157,7 @@ export default function JoinHouseholdScreen() {
         {/* Info Card */}
         <View style={[styles.infoCard, { backgroundColor: colors.surface }]}>
            <Text style={{ fontSize: 13, color: colors.textMuted, lineHeight: 20 }}>
-            Codes last 7 days. If you're solo, clear your list first.
+            Codes last 7 days. If you&apos;re solo, clear your list first.
           </Text>
         </View>
 

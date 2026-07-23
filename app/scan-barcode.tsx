@@ -4,7 +4,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { lookupBarcodeProduct, type BarcodeLookupResult } from "@/lib/barcodeLookup";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -23,7 +23,7 @@ export default function ScanBarcodeScreen() {
   const { itemId } = useLocalSearchParams<ScanRouteParams>();
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
-  const [handledCode, setHandledCode] = useState<string | null>(null);
+  const handledRef = useRef<string | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [scanResult, setScanResult] = useState<BarcodeLookupResult | null>(null);
 
@@ -39,7 +39,7 @@ export default function ScanBarcodeScreen() {
       unit: string | null;
       notes: string | null;
     }) => {
-      router.replace({
+      router.dismissTo({
         pathname: destination,
         params: {
           ...(itemId ? { id: itemId } : {}),
@@ -58,20 +58,20 @@ export default function ScanBarcodeScreen() {
   const onBarcodeScanned = useCallback(
     async ({ data }: { data: string }) => {
       const code = data.trim();
-      if (!code || busy || handledCode === code || scanResult) return;
-      setHandledCode(code);
+      if (!code || handledRef.current) return;
+      handledRef.current = code;
       setBusy(true);
       const result = await lookupBarcodeProduct(code);
       setBusy(false);
       setScanResult(result);
     },
-    [busy, handledCode, scanResult]
+    []
   );
 
   const resetScan = useCallback(() => {
     setBusy(false);
     setScanResult(null);
-    setHandledCode(null);
+    handledRef.current = null;
   }, []);
 
   if (!permission) {
@@ -126,7 +126,7 @@ export default function ScanBarcodeScreen() {
         <View style={styles.header}>
             <EditorialHeading bold="Scan" italic="barcode." size={28} color="#fff" />
             <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 4 }}>
-                We'll auto-fill the product info.
+                We&apos;ll auto-fill the product info.
             </Text>
         </View>
 

@@ -91,3 +91,29 @@ describe("suggestStorage", () => {
     expect(suggestStorage(null)).toBe("fridge");
   });
 });
+
+describe("calculateExpiry — sushi (fridgeDays=1) on counter", () => {
+  it("counter, not opened → clamped to 1 day (Math.max(1, round(1 * 0.4)))", () => {
+    // round(1 * 0.4) = 0 would spoil today; clamped to 1 like the opened branch
+    const result = calculateExpiry("sushi", "counter", false, REF);
+    expect(result.confidence).toBe("estimated");
+    expect(result.spoilDate).toBe(datePlusDays(1));
+    expect(result.message).toContain("1d");
+  });
+});
+
+describe("calculateExpiry — white rice (non-perishable) in freezer", () => {
+  it("freezer, not opened → 365-day default, same as pantry", () => {
+    const result = calculateExpiry("white rice", "freezer", false, REF);
+    expect(result.confidence).toBe("estimated");
+    expect(result.spoilDate).toBe(datePlusDays(365));
+    expect(result.message).toContain("365d");
+  });
+});
+
+describe("suggestStorage — frozen goods", () => {
+  it("ice cream (freezerDays only, perishable) → 'freezer'", () => {
+    const item = detectItem("ice cream") as DetectedItem;
+    expect(suggestStorage(item)).toBe("freezer");
+  });
+});

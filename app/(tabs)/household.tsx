@@ -18,6 +18,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -134,13 +135,15 @@ export default function HouseholdScreen() {
       if (!focusActiveRef.current) return;
 
       if (hhErr) {
-        Alert.alert("Could not load household", hhErr.message);
+        if (Platform.OS === "web") window.alert(hhErr.message);
+        else Alert.alert("Could not load household", hhErr.message);
         return;
       }
       setHouseholdName(hh?.name ?? "Kitchen");
 
       if (memErr) {
-        Alert.alert("Could not load members", memErr.message);
+        if (Platform.OS === "web") window.alert(memErr.message);
+        else Alert.alert("Could not load members", memErr.message);
         setMembers([]);
       } else {
         const rows = mems ?? [];
@@ -159,7 +162,9 @@ export default function HouseholdScreen() {
           });
         }
         if (skippedMembers > 0) {
-          Alert.alert("Members", "Some member rows could not be loaded.");
+          const msg = "Some member rows could not be loaded.";
+          if (Platform.OS === "web") window.alert(msg);
+          else Alert.alert("Members", msg);
         }
         const ids = parsedMembers.map((m) => m.user_id);
         let nameById: Record<string, string | null> = {};
@@ -194,7 +199,7 @@ export default function HouseholdScreen() {
       Sentry.captureException(err);
     } finally {
       if (focusActiveRef.current) {
-        if (withSpinner) setLoading(false);
+        setLoading(false);
         setRefreshing(false);
       }
     }
@@ -227,13 +232,15 @@ export default function HouseholdScreen() {
     const { data, error } = await supabase.rpc("create_household_invite");
     setInviteBusy(false);
     if (error) {
-      Alert.alert("Could not create invite", error.message);
+      if (Platform.OS === "web") window.alert(error.message);
+      else Alert.alert("Could not create invite", error.message);
       return;
     }
     const row = Array.isArray(data) ? data[0] : data;
     const inv = parseInviteRpcRow(row);
     if (!inv.ok) {
-      Alert.alert("Could not create invite", inv.error);
+      if (Platform.OS === "web") window.alert(inv.error);
+      else Alert.alert("Could not create invite", inv.error);
       return;
     }
     setInvite(inv.value);
@@ -242,7 +249,9 @@ export default function HouseholdScreen() {
   async function copyCode() {
     if (!invite?.code) return;
     await Clipboard.setStringAsync(invite.code);
-    Alert.alert("Copied", "Invite code copied to the clipboard.");
+    const msg = "Invite code copied to the clipboard.";
+    if (Platform.OS === "web") window.alert(msg);
+    else Alert.alert("Copied", msg);
   }
 
   if (!configured) {
@@ -313,7 +322,7 @@ export default function HouseholdScreen() {
         <Text style={styles.secondaryBtnText}>Join a different household</Text>
       </Pressable>
       <Text style={styles.joinFootnote}>
-        Solo kitchen? Finish or discard active items first; you can't join elsewhere until your current list is clear.
+        Solo kitchen? Finish or discard active items first; you can&apos;t join elsewhere until your current list is clear.
       </Text>
     </ScrollView>
   );

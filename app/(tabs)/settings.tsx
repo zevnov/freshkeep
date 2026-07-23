@@ -46,7 +46,7 @@ export default function SettingsScreen() {
   const prefs = profile?.notification_prefs;
 
   const lavBg = isDark ? "#150E28" : "#D8CCFF";
-  const lavTx = "#2A1A6B";
+  const lavTx = isDark ? "#D8CCFF" : "#2A1A6B";
 
   const toggle = useCallback(
     async (patch: Parameters<typeof updateNotificationPrefs>[0]) => {

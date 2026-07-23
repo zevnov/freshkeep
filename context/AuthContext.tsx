@@ -2,6 +2,7 @@ import type { NotificationPrefs } from "@/types";
 import { isNetworkErrorMessage } from "@/lib/networkError";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { fetchProfileForUser, type Profile } from "@/lib/profile";
+import * as Sentry from "@sentry/react-native";
 import type { Session, User } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -83,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const uid = session?.user?.id;
     if (!uid) return null;
     const p = await fetchProfileForUser(uid);
-    if (p) setProfile(p);
+    if (p && mountedRef.current) setProfile(p);
     return p;
   }, [session?.user?.id]);
 
@@ -94,11 +95,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-      setSession(data.session ?? null);
-      if (data.session?.user) await loadProfile(data.session.user.id);
-      setLoading(false);
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (cancelled) return;
+        setSession(data.session ?? null);
+        if (data.session?.user) await loadProfile(data.session.user.id);
+      } catch (err) {
+        // A transient startup failure must not wedge the app on the auth-loading gate.
+        Sentry.captureException(err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
 
     const {

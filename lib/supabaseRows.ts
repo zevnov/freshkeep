@@ -71,8 +71,12 @@ function parseSpoilOn(raw: unknown): ParseResult<string> {
   }
 
   const ymd = match[1];
-  const parsed = parseLocalDate(ymd);
-  if (toLocalDateString(parsed) !== ymd) {
+  try {
+    const parsed = parseLocalDate(ymd);
+    if (toLocalDateString(parsed) !== ymd) {
+      return { ok: false, error: `invalid spoil_on date (${ymd})` };
+    }
+  } catch {
     return { ok: false, error: `invalid spoil_on date (${ymd})` };
   }
 

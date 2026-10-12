@@ -5,7 +5,7 @@ export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string
 
 const STORAGE: StoragePlace[] = ["fridge", "freezer", "pantry", "counter"];
 const STATUSES: ItemStatus[] = ["active", "consumed", "trashed"];
-const HOUSEHOLD_ROLES = ["owner", "member"] as const;
+const HOUSEHOLD_ROLES = ["owner", "admin", "member"] as const;
 export type HouseholdRole = (typeof HOUSEHOLD_ROLES)[number];
 
 /** Shape returned by PostgREST for `items` (dates often ISO strings). */

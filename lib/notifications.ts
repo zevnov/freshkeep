@@ -49,6 +49,26 @@ export async function requestExpoNotificationPermissionsAsync(): Promise<{ statu
   return N.requestPermissionsAsync();
 }
 
+/** Expo push token for remote notifications; null on web/Expo Go, without permission, or without an EAS project id. */
+export async function getExpoPushTokenAsync(projectId: string | undefined): Promise<string | null> {
+  const N = getNotifications();
+  if (!N || !projectId) return null;
+  const { status } = await N.getPermissionsAsync();
+  if (status !== "granted") return null;
+  const token = await N.getExpoPushTokenAsync({ projectId });
+  return token.data;
+}
+
+/** Calls `onOpen` with the notification's data payload whenever the user taps a notification. */
+export function addNotificationTapListener(onOpen: (data: Record<string, unknown>) => void): () => void {
+  const N = getNotifications();
+  if (!N) return () => {};
+  const sub = N.addNotificationResponseReceivedListener((response) => {
+    onOpen((response.notification.request.content.data ?? {}) as Record<string, unknown>);
+  });
+  return () => sub.remove();
+}
+
 export async function ensureNotificationChannel(): Promise<void> {
   const N = getNotifications();
   if (!N) return;

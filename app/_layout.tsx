@@ -1,14 +1,15 @@
 import "react-native-gesture-handler";
 
-import { AuthProvider } from "@/context/AuthContext";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ItemsProvider } from "@/context/ItemsContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import * as Sentry from "@sentry/react-native";
 import Constants from "expo-constants";
 import { registerBackgroundNotificationTaskAsync } from "@/lib/backgroundNotifications";
-import { ensureNotificationChannel } from "@/lib/notifications";
-import { Stack } from "expo-router";
+import { addNotificationTapListener, ensureNotificationChannel } from "@/lib/notifications";
+import { registerPushToken } from "@/lib/pushTokens";
+import { router, Stack } from "expo-router";
 import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 
@@ -22,6 +23,29 @@ Sentry.init({
   release: Constants.expoConfig?.version ? `freshkeep@${Constants.expoConfig.version}` : undefined,
   tracesSampleRate: 1.0,
 });
+
+/** Registers this device for remote pushes once signed in, and routes notification taps. */
+function PushBridge() {
+  const { user } = useAuth();
+  const userId = user?.id;
+
+  useEffect(() => {
+    if (!userId) return;
+    registerPushToken().catch((err) => Sentry.captureException(err));
+  }, [userId]);
+
+  useEffect(
+    () =>
+      addNotificationTapListener((data) => {
+        if (data.type === "recall" && typeof data.itemId === "string") {
+          router.push({ pathname: "/item/[id]", params: { id: data.itemId } });
+        }
+      }),
+    []
+  );
+
+  return null;
+}
 
 function RootStack() {
   const { colors, isDark } = useTheme();
@@ -65,6 +89,7 @@ function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <ItemsProvider>
+            <PushBridge />
             <RootStack />
           </ItemsProvider>
         </AuthProvider>

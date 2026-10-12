@@ -3,6 +3,7 @@ import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useRecallAlerts } from "@/hooks/useRecallAlerts";
 import { itemIcon } from "@/lib/foodIcons";
 import {
   computeFreshnessBand,
@@ -17,6 +18,7 @@ import { useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -46,6 +48,7 @@ export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user, profile } = useAuth();
   const { items, updateItem, loading } = useItems();
+  const { byItem: recallsByItem, dismiss: dismissRecall } = useRecallAlerts();
 
   const item = items.find((i) => i.id === id);
   const versionRef = useRef(item?.schedule_version ?? 0);
@@ -214,6 +217,42 @@ export default function ItemDetailScreen() {
         </Text>
       </View>
 
+      {(recallsByItem.get(item.id) ?? []).map((recall) => (
+        <View key={recall.id} style={[styles.recallCard, { backgroundColor: colors.bandBg.overdue }]}>
+          <Text style={[styles.recallTitle, { color: colors.bandText.overdue }]}>
+            ⚠️ Recalled{recall.classification ? ` · ${recall.classification}` : ""}
+          </Text>
+          {recall.reason ? (
+            <Text style={[styles.recallText, { color: colors.bandText.overdue }]}>{recall.reason}</Text>
+          ) : null}
+          <Text style={[styles.recallMeta, { color: colors.bandText.overdue }]} numberOfLines={4}>
+            {recall.product_description}
+            {recall.recalling_firm ? ` · ${recall.recalling_firm}` : ""}
+            {recall.report_date ? ` · reported ${recall.report_date}` : ""}
+          </Text>
+          <Text style={[styles.recallMeta, { color: colors.bandText.overdue }]}>
+            Matched by barcode. Check the lot or best-by codes on your package against the recall before throwing it out.
+          </Text>
+          <View style={styles.recallActions}>
+            {recall.url ? (
+              <Pressable onPress={() => void Linking.openURL(recall.url as string)} accessibilityRole="link">
+                <Text style={[styles.recallLink, { color: colors.bandText.overdue }]}>FDA report {recall.recall_number} →</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => {
+                void dismissRecall(recall.id).then(({ error }) => {
+                  if (error) Alert.alert("Could not dismiss", error);
+                });
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.recallLink, { color: colors.bandText.overdue }]}>Not my lot · dismiss</Text>
+            </Pressable>
+          </View>
+        </View>
+      ))}
+
       {item.nutrition || item.image_url || item.storage_tip ? (
         <View style={[styles.detailCard, { backgroundColor: colors.surface, padding: spacing.md }]}>
           <ProductCard
@@ -347,6 +386,12 @@ const styles = StyleSheet.create({
     right: 14,
     fontSize: 52,
   },
+  recallCard: { borderRadius: radius.lg, padding: spacing.md, gap: 6 },
+  recallTitle: { fontSize: 16, fontWeight: "700" },
+  recallText: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  recallMeta: { fontSize: 12, lineHeight: 17, opacity: 0.8 },
+  recallActions: { flexDirection: "row", gap: spacing.lg, marginTop: 4 },
+  recallLink: { fontSize: 13, fontWeight: "700" },
   detailCard: {
     borderRadius: radius.lg,
     overflow: "hidden",

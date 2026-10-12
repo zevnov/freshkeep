@@ -3,6 +3,7 @@ import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useRecallAlerts } from "@/hooks/useRecallAlerts";
 import type { ExpiryItem } from "@/lib/expiryKnowledge";
 import { itemIcon } from "@/lib/foodIcons";
 import { groupByCategory, isItemSort, ITEM_SORT_OPTIONS, sortItems, type ItemSort } from "@/lib/itemSort";
@@ -92,6 +93,7 @@ export default function HomeScreen() {
   const [filter, setFilter] = useState<Filter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sort, setSort] = useState<ItemSort>("urgency");
+  const { byItem: recallsByItem } = useRecallAlerts();
 
   useEffect(() => {
     AsyncStorage.getItem(SORT_STORAGE_KEY)
@@ -170,6 +172,11 @@ export default function HomeScreen() {
     ).length;
     return { fresh, soon, overdue };
   }, [activeItems, soonDays, todayYmd]);
+
+  const recalledItems = useMemo(
+    () => activeItems.filter((i) => recallsByItem.has(i.id)),
+    [activeItems, recallsByItem]
+  );
 
   // The "eat me first" card is always the most urgent item, whatever the list's sort.
   const hero = byUrgency[0] ?? null;
@@ -377,6 +384,22 @@ export default function HomeScreen() {
             ))}
           </View>
 
+          {recalledItems.length > 0 ? (
+            <Pressable
+              onPress={() => router.push({ pathname: "/item/[id]", params: { id: recalledItems[0].id } })}
+              style={[styles.recallBanner, { backgroundColor: colors.bandBg.overdue }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Recall alert for ${recalledItems.map((i) => i.name).join(", ")}`}
+            >
+              <Text style={[styles.recallTitle, { color: colors.bandText.overdue }]}>
+                ⚠️ {recalledItems.length === 1 ? "Recalled product in your kitchen" : `${recalledItems.length} recalled products in your kitchen`}
+              </Text>
+              <Text style={{ color: colors.bandText.overdue, fontSize: 13, opacity: 0.8 }} numberOfLines={2}>
+                {recalledItems.map((i) => i.name).join(", ")} · Tap for details
+              </Text>
+            </Pressable>
+          ) : null}
+
           {/* Hero card */}
           {renderHero()}
 
@@ -467,7 +490,7 @@ export default function HomeScreen() {
         })}
       </ScrollView>
     </>
-  ), [displayName, counts, colors, filter, renderHero, isSearching, searchQuery, sort, changeSort]);
+  ), [displayName, counts, colors, filter, renderHero, isSearching, searchQuery, sort, changeSort, recalledItems]);
 
   const goToKnowledgeSuggestion = useCallback((entry: ExpiryItem) => {
     router.push({
@@ -625,6 +648,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
     gap: 3,
+  },
+  recallBanner: {
+    borderRadius: radius.lg,
+    padding: 16,
+    marginBottom: spacing.md,
+    gap: 4,
+  },
+  recallTitle: {
+    fontSize: 15,
+    fontWeight: "700",
   },
   heroCard: {
     borderRadius: radius.xl,

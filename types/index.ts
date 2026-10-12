@@ -69,6 +69,10 @@ export type NotificationPrefs = {
   digestHour: number;
   digestMinute: number;
   includeMine: boolean;
+  /** Push when someone else in the household adds, uses up or tosses a shared item. */
+  notifyHouseholdActivity: boolean;
+  /** Push when a recalled product matches something you have. */
+  notifyRecalls: boolean;
 };
 
 export type CreateItemPayload = {
@@ -114,4 +118,6 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   digestHour: 8,
   digestMinute: 0,
   includeMine: true,
+  notifyHouseholdActivity: true,
+  notifyRecalls: true,
 };

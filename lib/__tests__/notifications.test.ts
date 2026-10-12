@@ -1,26 +1,9 @@
 import { buildDigestBody, countDigestBuckets } from "@/lib/notifications";
 import type { ItemRow, NotificationPrefs } from "@/types";
+import { makeItem } from "./itemFixture";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/types";
 
-function item(partial: Partial<ItemRow> & Pick<ItemRow, "id" | "name" | "spoil_on">): ItemRow {
-  return {
-    household_id: "h1",
-    owner_user_id: "u1",
-    scope: "ours",
-    storage: "fridge",
-    quantity: null,
-    unit: null,
-    notes: null,
-    remind_me: true,
-    remind_days_before: 0,
-    status: "active",
-    schedule_version: 0,
-    created_by: "u1",
-    created_at: "",
-    updated_at: "",
-    ...partial,
-  };
-}
+const item = makeItem;
 
 describe("countDigestBuckets", () => {
   const prefs: NotificationPrefs = { ...DEFAULT_NOTIFICATION_PREFS, notificationStyle: "digest" };

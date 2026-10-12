@@ -1,7 +1,9 @@
+import { ProductCard } from "@/components/ProductCard";
 import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
+import { itemIcon } from "@/lib/foodIcons";
 import {
   computeFreshnessBand,
   daysUntilSpoil,
@@ -139,6 +141,8 @@ export default function ItemDetailScreen() {
 
   const rows: [string, string][] = [
     ["Storage", item.storage.charAt(0).toUpperCase() + item.storage.slice(1)],
+    ...(item.brand ? ([["Brand", item.brand]] as [string, string][]) : []),
+    ...(item.category ? ([["Food type", item.category.charAt(0).toUpperCase() + item.category.slice(1)]] as [string, string][]) : []),
     ["Spoil date", `${formatSpoilDate(item.spoil_on)} (${spoilLabel})`],
     ["Status", statusLabel(item.status)],
     ...(item.quantity != null
@@ -182,6 +186,9 @@ export default function ItemDetailScreen() {
           </Text>
         </View>
 
+        <Text style={styles.heroIcon} accessibilityElementsHidden importantForAccessibility="no">
+          {itemIcon(item)}
+        </Text>
         <Text style={[styles.heroName, { color: heroTx }]}>{item.name}</Text>
 
         {/* Big countdown */}
@@ -206,6 +213,19 @@ export default function ItemDetailScreen() {
           ✦
         </Text>
       </View>
+
+      {item.nutrition || item.image_url || item.storage_tip ? (
+        <View style={[styles.detailCard, { backgroundColor: colors.surface, padding: spacing.md }]}>
+          <ProductCard
+            name={item.name}
+            brand={item.brand}
+            imageUrl={item.image_url}
+            nutrition={item.nutrition}
+            storageTip={item.storage_tip}
+            fallbackIcon={itemIcon(item)}
+          />
+        </View>
+      ) : null}
 
       {/* Detail rows card */}
       <View style={[styles.detailCard, { backgroundColor: colors.surface }]}>
@@ -296,6 +316,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.4,
   },
+  heroIcon: { fontSize: 40, marginBottom: 6 },
   heroName: {
     fontSize: 24,
     fontWeight: "700",

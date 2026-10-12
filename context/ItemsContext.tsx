@@ -88,6 +88,20 @@ function buildInsertRow(householdId: string, uid: string, payload: CreateItemPay
     schedule_version: 0,
     created_by: uid,
     updated_at: nowIso,
+    ...productFields(payload),
+  };
+}
+
+/** Optional on the payload (and absent from mutations queued before these columns existed), so default every field to null. */
+function productFields(payload: CreateItemPayload) {
+  return {
+    category: payload.category ?? null,
+    icon: payload.icon ?? null,
+    barcode: payload.barcode ?? null,
+    brand: payload.brand ?? null,
+    image_url: payload.image_url ?? null,
+    nutrition: payload.nutrition ?? null,
+    storage_tip: payload.storage_tip ?? null,
   };
 }
 
@@ -252,6 +266,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
         created_by: uid,
         created_at: nowIso,
         updated_at: nowIso,
+        ...productFields(payload),
       };
       applyItems((prev) => [...prev, optimisticItem]);
 

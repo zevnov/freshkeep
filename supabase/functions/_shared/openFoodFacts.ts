@@ -161,3 +161,8 @@ export function emptyProduct(barcode: string, notes: string | null): ProductInfo
     notes,
   };
 }
+
+/** Cache key and upstream query: lowercase, single-spaced, at most 60 characters. */
+export function normalizeSearchQuery(raw: string): string {
+  return raw.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 60);
+}

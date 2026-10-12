@@ -330,6 +330,16 @@ export default function HomeScreen() {
           {/* Quick actions */}
           <View style={styles.quickActions}>
             <Pressable
+              onPress={() => router.push({ pathname: "/quick-add", params: { from: "home" } })}
+              style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Quick add a popular brand"
+            >
+              <Text style={[styles.quickActionText, { color: colors.text }]}>
+                ⚡ Quick add
+              </Text>
+            </Pressable>
+            <Pressable
               onPress={() => router.push("/bulk-scan")}
               style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
               accessibilityRole="button"
@@ -586,6 +596,7 @@ const styles = StyleSheet.create({
   },
   quickActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     marginBottom: spacing.sm,
   },

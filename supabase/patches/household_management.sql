@@ -13,7 +13,7 @@ alter table public.household_members drop constraint if exists household_members
 alter table public.household_members
   add constraint household_members_role_check check (role in ('owner', 'admin', 'member'));
 
--- The caller's role in their current household, or null.
+-- The caller's role in household `hid`, or '' when they aren't a member.
 create or replace function public.my_household_role(hid uuid)
 returns text
 language sql
@@ -21,7 +21,11 @@ security definer
 set search_path = public
 stable
 as $$
-  select role from public.household_members where household_id = hid and user_id = auth.uid();
+  -- '' rather than null for non-members, so "role not in (...)" checks can't pass on a null.
+  select coalesce(
+    (select role from public.household_members where household_id = hid and user_id = auth.uid()),
+    ''
+  );
 $$;
 
 revoke all on function public.my_household_role(uuid) from public;

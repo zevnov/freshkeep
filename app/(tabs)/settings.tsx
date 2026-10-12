@@ -140,14 +140,24 @@ export default function SettingsScreen() {
 
       {/* Account card */}
       <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Account</Text>
-      <View style={[styles.card, { backgroundColor: colors.surface }]}>
-        <Text style={{ fontSize: 15, fontWeight: "600", color: colors.text }}>
-          {profile.display_name || "Signed in"}
-        </Text>
-        <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
-          {user.email}
-        </Text>
-      </View>
+      <Pressable
+        style={[styles.card, { backgroundColor: colors.surface }]}
+        onPress={() => router.push("/profile")}
+        accessibilityRole="button"
+        accessibilityLabel="Open your profile"
+      >
+        <View style={styles.rowBetween}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.text }}>
+              {profile.display_name || "Signed in"}
+            </Text>
+            <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
+              {user.email}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: colors.brand }}>Profile →</Text>
+        </View>
+      </Pressable>
 
       {/* Join household link */}
       <Pressable

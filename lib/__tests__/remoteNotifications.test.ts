@@ -64,6 +64,8 @@ describe("barcodes in recall text", () => {
     expect(extractGtins("Peanut Butter 16 oz, UPC 0 36000 29145 2; Lot 123456789013")).toEqual([toGtin14("036000291452")]);
     expect(extractGtins("UPC: 036000-291452", "EAN 4006381333931")).toEqual(["00036000291452", "04006381333931"]);
     expect(extractGtins(undefined, "no codes here")).toEqual([]);
+    expect(extractGtins("UPC 041220577668 041220577675")).toEqual(["00041220577668", "00041220577675"]);
+    expect(extractGtins("Lot 1234 036000291452")).toEqual(["00036000291452"]);
   });
 
   it("normalizes an FDA report", () => {

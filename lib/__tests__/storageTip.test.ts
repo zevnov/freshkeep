@@ -16,6 +16,12 @@ describe("storageFromTip", () => {
     expect(storageFromTip("Store in a cool dry place. Once opened, keep refrigerated.", false)).toBe("pantry");
   });
 
+  it("treats an unconditional fridge instruction as fridge even when opening is mentioned", () => {
+    expect(storageFromTip("Keep refrigerated below 5°C, once opened use within 3 days.", false)).toBe("fridge");
+    expect(storageFromTip("Keep refrigerated. Refrigerate after opening and use within 2 days.", false)).toBe("fridge");
+    expect(storageFromTip("After opening, refrigerate and consume within 3 days.", false)).toBe("pantry");
+  });
+
   it("returns null when it cannot tell", () => {
     expect(storageFromTip("Best before: see lid.", false)).toBeNull();
     expect(storageFromTip(null, false)).toBeNull();

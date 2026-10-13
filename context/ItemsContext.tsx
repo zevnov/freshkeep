@@ -105,6 +105,38 @@ function productFields(payload: CreateItemPayload) {
   };
 }
 
+const PRODUCT_COLUMNS = ["category", "icon", "barcode", "brand", "image_url", "nutrition", "storage_tip"] as const;
+
+/**
+ * PostgREST's "column not in schema cache" error: the app build is newer than the database
+ * (supabase/patches/items_product_columns.sql not applied yet). Writes then retry without the
+ * product columns, so adding and editing items keeps working; only the extras are dropped.
+ */
+function isMissingProductColumn(error: { code?: string; message: string } | null): boolean {
+  if (!error) return false;
+  return error.code === "PGRST204" && PRODUCT_COLUMNS.some((c) => error.message.includes(`'${c}'`));
+}
+
+function withoutProductColumns<T extends Record<string, unknown>>(row: T): T {
+  const copy: Record<string, unknown> = { ...row };
+  for (const c of PRODUCT_COLUMNS) delete copy[c];
+  return copy as T;
+}
+
+async function insertItemRow(row: Record<string, unknown>) {
+  const res = await supabase.from("items").insert(row).select("*").single();
+  if (!isMissingProductColumn(res.error)) return res;
+  return supabase.from("items").insert(withoutProductColumns(row)).select("*").single();
+}
+
+async function updateItemRow(id: string, expectedVersion: number, patch: Record<string, unknown>) {
+  const run = (p: Record<string, unknown>) =>
+    supabase.from("items").update(p).eq("id", id).eq("schedule_version", expectedVersion).select("*").maybeSingle();
+  const res = await run(patch);
+  if (!isMissingProductColumn(res.error)) return res;
+  return run(withoutProductColumns(patch));
+}
+
 export function ItemsProvider({ children }: { children: React.ReactNode }) {
   const { user, profile, ensureProfile } = useAuth();
   const { isConnected } = useNetworkStatus();
@@ -283,7 +315,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
 
       const row = buildInsertRow(householdId, uid, payload, nowIso);
       try {
-        const { data, error: ierr } = await supabase.from("items").insert(row).select("*").single();
+        const { data, error: ierr } = await insertItemRow(row);
         if (ierr) {
           if (isNetworkErrorMessage(ierr.message)) return queueAndReturn();
           applyItems((prev) => prev.filter((i) => i.id !== tempId));
@@ -353,13 +385,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
 
       const nextPatch = { ...patch, schedule_version: nextVersion, updated_at: nowIso };
       try {
-        const { data, error: uerr } = await supabase
-          .from("items")
-          .update(nextPatch)
-          .eq("id", id)
-          .eq("schedule_version", currentVersion)
-          .select("*")
-          .maybeSingle();
+        const { data, error: uerr } = await updateItemRow(id, currentVersion, nextPatch);
         if (uerr) {
           if (isNetworkErrorMessage(uerr.message)) return queueAndReturn();
           rollbackOptimistic();
@@ -439,7 +465,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
         };
 
         try {
-          const { data, error: ierr } = await supabase.from("items").insert(row).select("*").single();
+          const { data, error: ierr } = await insertItemRow(row);
           if (ierr) {
             if (isNetworkErrorMessage(ierr.message)) {
               pendingTempIds.add(mutation.tempId); // transient; retry whole chain next sync
@@ -495,13 +521,11 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
           updated_at: nowIso,
         };
         try {
-          const { data, error: uerr } = await supabase
-            .from("items")
-            .update(nextPatch)
-            .eq("id", mutation.itemId)
-            .eq("schedule_version", mutation.expectedScheduleVersion)
-            .select("*")
-            .maybeSingle();
+          const { data, error: uerr } = await updateItemRow(
+            mutation.itemId,
+            mutation.expectedScheduleVersion,
+            nextPatch
+          );
           if (uerr) {
             if (!isNetworkErrorMessage(uerr.message)) {
               // Permanent server rejection: drop it and refresh to restore server truth.

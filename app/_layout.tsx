@@ -8,9 +8,10 @@ import * as Sentry from "@sentry/react-native";
 import Constants from "expo-constants";
 import { registerBackgroundNotificationTaskAsync } from "@/lib/backgroundNotifications";
 import { addNotificationTapListener, ensureNotificationChannel } from "@/lib/notifications";
-import { registerPushToken } from "@/lib/pushTokens";
+import { hasRegisteredPushToken, registerPushToken } from "@/lib/pushTokens";
 import { router, Stack } from "expo-router";
 import { useEffect } from "react";
+import { AppState } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN?.trim();
@@ -31,7 +32,14 @@ function PushBridge() {
 
   useEffect(() => {
     if (!userId) return;
-    registerPushToken().catch((err) => Sentry.captureException(err));
+    const register = () => registerPushToken().catch((err) => Sentry.captureException(err));
+    void register();
+    // Permission is often granted later (e.g. from Settings or the OS settings app), so try
+    // again whenever the app comes back to the foreground until a token is stored.
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && !hasRegisteredPushToken()) void register();
+    });
+    return () => sub.remove();
   }, [userId]);
 
   useEffect(

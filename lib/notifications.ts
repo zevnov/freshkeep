@@ -59,13 +59,31 @@ export async function getExpoPushTokenAsync(projectId: string | undefined): Prom
   return token.data;
 }
 
-/** Calls `onOpen` with the notification's data payload whenever the user taps a notification. */
+/**
+ * Calls `onOpen` with the notification's data payload whenever the user taps a notification,
+ * including the tap that cold-launched the app (which happens before any listener exists).
+ */
 export function addNotificationTapListener(onOpen: (data: Record<string, unknown>) => void): () => void {
   const N = getNotifications();
   if (!N) return () => {};
-  const sub = N.addNotificationResponseReceivedListener((response) => {
+  const handled = new Set<string>();
+  const handle = (response: import("expo-notifications").NotificationResponse) => {
+    const id = response.notification.request.identifier;
+    if (handled.has(id)) return;
+    handled.add(id);
     onOpen((response.notification.request.content.data ?? {}) as Record<string, unknown>);
-  });
+  };
+  const sub = N.addNotificationResponseReceivedListener(handle);
+  N.getLastNotificationResponseAsync()
+    .then((last) => {
+      if (!last) return;
+      handle(last);
+      // So the same tap doesn't reopen the item on every later launch.
+      return N.clearLastNotificationResponseAsync();
+    })
+    .catch(() => {
+      /* nothing to route */
+    });
   return () => sub.remove();
 }
 

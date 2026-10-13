@@ -1,6 +1,7 @@
 import { parseRecallAlert } from "@/lib/recalls";
 
 jest.mock("@/lib/supabase", () => ({ supabase: {} }));
+jest.mock("@sentry/react-native", () => ({ captureMessage: jest.fn() }));
 
 describe("parseRecallAlert", () => {
   it("flattens the joined recall (object or one-element array)", () => {

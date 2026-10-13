@@ -15,6 +15,7 @@ type Admin = ReturnType<typeof adminClient>;
 // Let a burst (bulk scan, receipt import) finish so it becomes one notification.
 const SETTLE_SECONDS = 20;
 // Anything older than this is stale news (e.g. the cron was paused); mark it sent silently.
+// Delivery is at-least-once: if Expo fails midway, the retry may repeat pushes already sent.
 const STALE_MINUTES = 60;
 
 type Recipient = { userId: string; tokens: string[] };
@@ -51,19 +52,16 @@ async function householdMembers(admin: Admin, householdIds: string[]): Promise<M
   return out;
 }
 
-async function dispatchActivity(admin: Admin): Promise<ExpoPushMessage[]> {
-  const settled = new Date(Date.now() - SETTLE_SECONDS * 1000).toISOString();
+type Batch = { messages: ExpoPushMessage[]; table: "household_activity" | "item_recall_alerts"; ids: (number | string)[] };
+
+async function dispatchActivity(admin: Admin): Promise<Batch> {
   const stale = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString();
-  const { data, error } = await admin
-    .from("household_activity")
-    .select("id, household_id, actor_id, action, item_name, created_at")
-    .is("pushed_at", null)
-    .lt("created_at", settled)
-    .order("created_at")
-    .limit(500);
+  // Atomically claims unsent rows, so an overlapping run can't send them too.
+  const { data, error } = await admin.rpc("claim_household_activity", { settle_seconds: SETTLE_SECONDS, max_rows: 500 });
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as (ActivityRow & { created_at: string })[];
-  if (rows.length === 0) return [];
+  const batch: Batch = { messages: [], table: "household_activity", ids: rows.map((r) => r.id) };
+  if (rows.length === 0) return batch;
 
   const fresh = rows.filter((r) => r.created_at >= stale);
   const groups = groupActivity(fresh);
@@ -82,61 +80,60 @@ async function dispatchActivity(admin: Admin): Promise<ExpoPushMessage[]> {
   const allMembers = [...new Set([...members.values()].flat())];
   const recipients = await loadRecipients(admin, allMembers, "notifyHouseholdActivity");
 
-  const messages: ExpoPushMessage[] = [];
   for (const g of groups) {
     const body = activityMessage(actorName.get(g.actor_id) ?? "Someone", g.action, g.names);
     for (const userId of members.get(g.household_id) ?? []) {
       if (userId === g.actor_id) continue; // never notify people about their own changes
       for (const token of recipients.get(userId)?.tokens ?? []) {
-        messages.push({ to: token, title: householdName.get(g.household_id) ?? "Freshkeep", body, data: { type: "activity" } });
+        batch.messages.push({ to: token, title: householdName.get(g.household_id) ?? "Freshkeep", body, data: { type: "activity" } });
       }
     }
   }
-
-  // Mark everything fetched (stale rows included) so nothing is sent twice.
-  await admin.from("household_activity").update({ pushed_at: new Date().toISOString() }).in("id", rows.map((r) => r.id));
-  return messages;
+  return batch;
 }
 
-type AlertRow = {
-  id: string;
-  item_id: string;
-  household_id: string;
-  items: { name: string; scope: string; owner_user_id: string | null; status: string } | null;
-  product_recalls: { reason: string | null } | null;
-};
+type AlertRow = { id: string; item_id: string; household_id: string; recall_number: string };
+type AlertItem = { id: string; name: string; scope: string; owner_user_id: string | null; status: string };
 
-async function dispatchRecalls(admin: Admin): Promise<ExpoPushMessage[]> {
-  const { data, error } = await admin
-    .from("item_recall_alerts")
-    .select("id, item_id, household_id, items(name, scope, owner_user_id, status), product_recalls(reason)")
-    .is("pushed_at", null)
-    .is("dismissed_at", null)
-    .order("created_at")
-    .limit(200);
+async function dispatchRecalls(admin: Admin): Promise<Batch> {
+  const { data, error } = await admin.rpc("claim_recall_alerts", { max_rows: 200 });
   if (error) throw new Error(error.message);
-  const alerts = (data ?? []) as unknown as AlertRow[];
-  if (alerts.length === 0) return [];
+  const alerts = (data ?? []) as AlertRow[];
+  const batch: Batch = { messages: [], table: "item_recall_alerts", ids: alerts.map((a) => a.id) };
+  if (alerts.length === 0) return batch;
 
-  const members = await householdMembers(admin, [...new Set(alerts.map((a) => a.household_id))]);
+  const [{ data: itemRows }, { data: recallRows }, members] = await Promise.all([
+    admin.from("items").select("id, name, scope, owner_user_id, status").in("id", [...new Set(alerts.map((a) => a.item_id))]),
+    admin.from("product_recalls").select("recall_number, reason").in("recall_number", [...new Set(alerts.map((a) => a.recall_number))]),
+    householdMembers(admin, [...new Set(alerts.map((a) => a.household_id))]),
+  ]);
+  const items = new Map(((itemRows ?? []) as AlertItem[]).map((i) => [i.id, i]));
+  const reasons = new Map(
+    ((recallRows ?? []) as { recall_number: string; reason: string | null }[]).map((r) => [r.recall_number, r.reason])
+  );
   const allMembers = [...new Set([...members.values()].flat())];
   const recipients = await loadRecipients(admin, allMembers, "notifyRecalls");
 
-  const messages: ExpoPushMessage[] = [];
   for (const a of alerts) {
-    if (!a.items || a.items.status !== "active") continue;
+    const item = items.get(a.item_id);
+    if (!item || item.status !== "active") continue;
     // Private items alert only their owner; shared items alert the whole household.
-    const audience = a.items.scope === "mine" ? (a.items.owner_user_id ? [a.items.owner_user_id] : []) : members.get(a.household_id) ?? [];
-    const { title, body } = recallMessage(a.items.name, a.product_recalls?.reason ?? null);
+    const audience = item.scope === "mine" ? (item.owner_user_id ? [item.owner_user_id] : []) : members.get(a.household_id) ?? [];
+    const { title, body } = recallMessage(item.name, reasons.get(a.recall_number) ?? null);
     for (const userId of audience) {
       for (const token of recipients.get(userId)?.tokens ?? []) {
-        messages.push({ to: token, title, body, data: { type: "recall", itemId: a.item_id } });
+        batch.messages.push({ to: token, title, body, data: { type: "recall", itemId: a.item_id } });
       }
     }
   }
+  return batch;
+}
 
-  await admin.from("item_recall_alerts").update({ pushed_at: new Date().toISOString() }).in("id", alerts.map((a) => a.id));
-  return messages;
+/** Only after the send succeeds; if it throws, the claims lapse after 5 minutes and the rows retry. */
+async function markPushed(admin: Admin, batch: Batch) {
+  if (batch.ids.length === 0) return;
+  const { error } = await admin.from(batch.table).update({ pushed_at: new Date().toISOString() }).in("id", batch.ids);
+  if (error) throw new Error(error.message);
 }
 
 Deno.serve(async (req: Request) => {
@@ -148,8 +145,10 @@ Deno.serve(async (req: Request) => {
   const admin = adminClient(env);
 
   try {
-    const messages = [...(await dispatchActivity(admin)), ...(await dispatchRecalls(admin))];
+    const batches = [await dispatchActivity(admin), await dispatchRecalls(admin)];
+    const messages = batches.flatMap((b) => b.messages);
     const { sent, deadTokens } = await sendExpoPush(messages);
+    for (const b of batches) await markPushed(admin, b);
     if (deadTokens.length > 0) await admin.from("push_tokens").delete().in("token", deadTokens);
     return json({ queued: messages.length, sent, pruned: deadTokens.length });
   } catch (error) {

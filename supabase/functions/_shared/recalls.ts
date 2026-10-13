@@ -42,16 +42,41 @@ export function hasValidCheckDigit(code: string): boolean {
 
 /**
  * Barcodes printed in a recall's free text. Recalls write UPCs many ways ("UPC 0 41220 57766 4",
- * "UPC: 041220-577664", "041220577664"), so digit groups separated by spaces or dashes are joined
- * before looking for 12–14 digit codes with a valid check digit.
+ * "UPC: 041220-577664", "041220577664"), so each run of digit groups separated by single spaces
+ * or dashes is scanned token by token: a token that is a valid code on its own is taken as is,
+ * otherwise consecutive tokens are joined while they add up to a 12–14 digit code with a valid
+ * check digit. Lists of codes ("041220577668 041220577675") therefore stay separate.
  */
 export function extractGtins(...texts: (string | undefined)[]): string[] {
   const found = new Set<string>();
+  const isCode = (s: string) => s.length >= 12 && s.length <= 14 && hasValidCheckDigit(s);
   for (const text of texts) {
     if (!text) continue;
-    const joined = text.replace(/(\d)[ \-–](?=\d)/g, "$1");
-    for (const m of joined.matchAll(/(?<!\d)\d{12,14}(?!\d)/g)) {
-      if (hasValidCheckDigit(m[0])) found.add(toGtin14(m[0]));
+    for (const run of text.matchAll(/\d+(?:[ \-–]\d+)*/g)) {
+      const tokens = run[0].split(/[ \-–]/);
+      let i = 0;
+      while (i < tokens.length) {
+        if (isCode(tokens[i])) {
+          found.add(toGtin14(tokens[i]));
+          i += 1;
+          continue;
+        }
+        let joined = tokens[i];
+        let end = -1;
+        for (let j = i + 1; j < tokens.length && joined.length + tokens[j].length <= 14; j++) {
+          joined += tokens[j];
+          if (isCode(joined)) {
+            end = j;
+            break;
+          }
+        }
+        if (end >= 0) {
+          found.add(toGtin14(joined));
+          i = end + 1;
+        } else {
+          i += 1;
+        }
+      }
     }
   }
   return [...found].sort();

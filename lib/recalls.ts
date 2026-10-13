@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import * as Sentry from "@sentry/react-native";
 
 export type RecallAlert = {
   id: string;
@@ -40,7 +41,7 @@ export function parseRecallAlert(raw: unknown): RecallAlert | null {
   };
 }
 
-/** Open (undismissed) recall alerts visible to the caller. Empty if recall tracking isn't set up on the server. */
+/** Open (undismissed) recall alerts visible to the caller. Empty (and logged) if the query fails. */
 export async function fetchRecallAlerts(): Promise<RecallAlert[]> {
   const { data, error } = await supabase
     .from("item_recall_alerts")
@@ -50,7 +51,12 @@ export async function fetchRecallAlerts(): Promise<RecallAlert[]> {
     .is("dismissed_at", null)
     .order("created_at", { ascending: false })
     .limit(50);
-  if (error) return [];
+  if (error) {
+    // Logged rather than shown: recall tracking is optional server setup, so a missing table
+    // shouldn't put an error on the home screen, but a real failure must not be invisible.
+    Sentry.captureMessage(`Recall alerts unavailable: ${error.message}`, "warning");
+    return [];
+  }
   return (data ?? []).map(parseRecallAlert).filter((a): a is RecallAlert => a != null);
 }
 

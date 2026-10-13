@@ -24,10 +24,18 @@ export async function registerPushToken(): Promise<void> {
   registeredToken = token;
 }
 
-/** Call before signing out so the next person on this device doesn't get the previous user's pushes. */
+export function hasRegisteredPushToken(): boolean {
+  return registeredToken != null;
+}
+
+/**
+ * Call before signing out so the next person on this device doesn't get the previous user's
+ * pushes. Throws if the delete fails (e.g. offline); the token is kept so a retry can try again.
+ * If sign-out goes ahead anyway, the next account to sign in on this device takes the token over.
+ */
 export async function unregisterPushToken(): Promise<void> {
   if (!registeredToken) return;
-  const token = registeredToken;
+  const { error } = await supabase.from("push_tokens").delete().eq("token", registeredToken);
+  if (error) throw new Error(`Could not unregister push token: ${error.message}`);
   registeredToken = null;
-  await supabase.from("push_tokens").delete().eq("token", token);
 }

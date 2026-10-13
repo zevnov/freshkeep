@@ -119,7 +119,9 @@ begin
 end;
 $$;
 
-revoke all on function public.detach_household_member(uuid, uuid) from public, authenticated;
+-- Internal helper with no permission checks of its own. Supabase grants EXECUTE on new
+-- public functions to anon and authenticated explicitly, so revoke from both, not just public.
+revoke all on function public.detach_household_member(uuid, uuid) from public, anon, authenticated;
 
 create or replace function public.remove_household_member(target uuid)
 returns jsonb

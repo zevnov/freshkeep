@@ -801,7 +801,9 @@ begin
 end;
 $$;
 
-revoke all on function public.detach_household_member(uuid, uuid) from public, authenticated;
+-- Internal helper with no permission checks of its own. Supabase grants EXECUTE on new
+-- public functions to anon and authenticated explicitly, so revoke from both, not just public.
+revoke all on function public.detach_household_member(uuid, uuid) from public, anon, authenticated;
 
 create or replace function public.remove_household_member(target uuid)
 returns jsonb
@@ -1053,6 +1055,9 @@ create table if not exists public.household_activity (
   item_name text not null,
   action text not null check (action in ('added', 'used', 'tossed', 'removed')),
   created_at timestamptz not null default now(),
+  -- Set when a dispatch run takes the row; pushed_at once the push went out. A claim older
+  -- than 5 minutes without pushed_at means that run failed, and the row is retried.
+  claimed_at timestamptz,
   pushed_at timestamptz
 );
 
@@ -1145,6 +1150,7 @@ create table if not exists public.item_recall_alerts (
   household_id uuid not null references public.households (id) on delete cascade,
   recall_number text not null references public.product_recalls (recall_number) on delete cascade,
   created_at timestamptz not null default now(),
+  claimed_at timestamptz,
   pushed_at timestamptz,
   dismissed_at timestamptz,
   unique (item_id, recall_number)
@@ -1215,7 +1221,7 @@ begin
 end;
 $$;
 
-revoke all on function public.match_item_recalls(text[], uuid) from public, authenticated;
+revoke all on function public.match_item_recalls(text[], uuid) from public, anon, authenticated;
 
 create or replace function public.check_item_recalls()
 returns trigger
@@ -1235,6 +1241,53 @@ drop trigger if exists items_check_recalls on public.items;
 create trigger items_check_recalls
   after insert or update of barcode on public.items
   for each row execute function public.check_item_recalls();
+
+-- ---------------------------------------------------------------------------
+-- Dispatch claims: overlapping runs never take the same row, and a failed send is retried
+-- ---------------------------------------------------------------------------
+
+create or replace function public.claim_household_activity(settle_seconds int default 20, max_rows int default 500)
+returns setof public.household_activity
+language sql
+security definer
+set search_path = public
+as $$
+  update public.household_activity a
+  set claimed_at = now()
+  where a.id in (
+    select id from public.household_activity
+    where pushed_at is null
+      and (claimed_at is null or claimed_at < now() - interval '5 minutes')
+      and created_at < now() - make_interval(secs => settle_seconds)
+    order by created_at
+    limit max_rows
+    for update skip locked
+  )
+  returning a.*;
+$$;
+
+create or replace function public.claim_recall_alerts(max_rows int default 200)
+returns setof public.item_recall_alerts
+language sql
+security definer
+set search_path = public
+as $$
+  update public.item_recall_alerts a
+  set claimed_at = now()
+  where a.id in (
+    select id from public.item_recall_alerts
+    where pushed_at is null
+      and dismissed_at is null
+      and (claimed_at is null or claimed_at < now() - interval '5 minutes')
+    order by created_at
+    limit max_rows
+    for update skip locked
+  )
+  returning a.*;
+$$;
+
+revoke all on function public.claim_household_activity(int, int) from public, anon, authenticated;
+revoke all on function public.claim_recall_alerts(int) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Scheduling (run once, after deploying the functions)

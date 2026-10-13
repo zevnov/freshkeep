@@ -80,3 +80,10 @@ Local spoil reminders already work. Remote pushes (household activity and recall
   (450 ms) and needs 3+ characters.
 - **Invites**: any member can still create invite codes, as before. Restricting that to
   owners and admins is a one-line change in `create_household_invite` if wanted.
+- **Push delivery is at-least-once**: a dispatch run claims rows before sending and marks them
+  sent only after Expo accepts them. A failed run is retried after 5 minutes, so a send that
+  fails partway can repeat some pushes.
+- **Signing out offline** can't remove the device's push token from the server. The device then
+  keeps that account's pushes until someone signs in on it again, which takes the token over.
+- **Master switch**: "Enable reminders" controls only local spoil reminders. Household and recall
+  pushes have their own switches in Settings and stay on unless turned off there.

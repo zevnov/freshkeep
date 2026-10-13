@@ -1,6 +1,7 @@
 import { notifyUser, useItems } from "@/context/ItemsContext";
 import type { BulkQueueItem } from "@/lib/bulkScanItems";
 import { calculateExpiry } from "@/lib/expiryEngine";
+import { storageFromTip } from "@/lib/storageTip";
 import { useCallback, useState } from "react";
 
 export type BulkSaveFailure = {
@@ -66,7 +67,8 @@ export function useBulkItemQueue() {
 
     try {
       for (const item of items) {
-        const storage = item.perishable ? ("fridge" as const) : ("pantry" as const);
+        const storage =
+          storageFromTip(item.product?.storage_tip, false) ?? (item.perishable ? ("fridge" as const) : ("pantry" as const));
         const { spoilDate: spoilOn } = calculateExpiry(item.name, storage, false);
         let error: Error | null;
         try {
@@ -80,6 +82,9 @@ export function useBulkItemQueue() {
             notes: null,
             remind_me: false,
             remind_days_before: 0,
+            category: item.category,
+            barcode: item.barcode,
+            ...item.product,
           }));
         } catch (e) {
           error = e instanceof Error ? e : new Error(String(e));

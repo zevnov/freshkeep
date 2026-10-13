@@ -2,6 +2,7 @@ import type { NotificationPrefs } from "@/types";
 import { isNetworkErrorMessage } from "@/lib/networkError";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { fetchProfileForUser, type Profile } from "@/lib/profile";
+import { unregisterPushToken } from "@/lib/pushTokens";
 import * as Sentry from "@sentry/react-native";
 import type { Session, User } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
@@ -176,6 +177,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    try {
+      await unregisterPushToken();
+    } catch (err) {
+      Sentry.captureException(err);
+    }
     await supabase.auth.signOut();
     setProfile(null);
   }, []);

@@ -33,6 +33,8 @@ function joinErrorMessage(code: string | undefined): string {
       return "That code is invalid or expired.";
     case "solo_household_has_active_items":
       return "You're the only person in your current kitchen and it still has active items. Mark them as used or discarded on Home, then try again.";
+    case "owner_must_transfer":
+      return "You own your current household. Make someone else the owner on the Household tab first, then try again.";
     default:
       return "Something went wrong.";
   }

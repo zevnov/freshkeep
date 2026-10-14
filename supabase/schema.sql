@@ -384,9 +384,23 @@ create policy items_update on public.items
     )
     -- owner_user_id may only be set to the current user or null; never to another user's id
     and (owner_user_id is null or owner_user_id = auth.uid())
-    -- created_by is immutable; clients may not change it
-    and created_by = (select i.created_by from public.items i where i.id = items.id)
   );
+
+-- created_by is immutable. Enforced by a trigger rather than in items_update's with check:
+-- a policy on items that selects from items raises "infinite recursion detected in policy".
+create or replace function public.items_created_by_immutable() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if new.created_by is distinct from old.created_by then
+    raise exception 'created_by is immutable';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists items_created_by_immutable on public.items;
+create trigger items_created_by_immutable
+  before update on public.items
+  for each row execute function public.items_created_by_immutable();
 
 create policy items_delete on public.items
   for delete to authenticated

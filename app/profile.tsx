@@ -235,7 +235,7 @@ export default function ProfileScreen() {
 
         <View style={styles.bfInputRow}>
           <TextInput
-            style={[styles.input, { flex: 1, backgroundColor: colors.faint, color: colors.text }]}
+            style={[styles.input, { flex: 1, minWidth: 0, backgroundColor: colors.faint, color: colors.text }]}
             value={bfInput}
             onChangeText={setBfInput}
             keyboardType="decimal-pad"

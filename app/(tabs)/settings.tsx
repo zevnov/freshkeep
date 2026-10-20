@@ -111,15 +111,19 @@ export default function SettingsScreen() {
     [prefs, updateNotificationPrefs]
   );
 
-  const doSignOut = () => {
-    void (async () => {
+  const doSignOut = async () => {
+    try {
       await signOut();
       if (Platform.OS === "web") {
         window.location.replace("/login");
       } else {
         router.replace("/(auth)/login");
       }
-    })();
+    } catch (err) {
+      Sentry.captureException(err);
+      const message = err instanceof Error ? err.message : "Something went wrong while signing out.";
+      Alert.alert("Sign out failed", message);
+    }
   };
 
   if (!configured) return <Redirect href="/setup" />;
@@ -383,7 +387,7 @@ export default function SettingsScreen() {
         style={[styles.signOutBtn, { backgroundColor: colors.faint }]}
         onPress={() => {
           if (Platform.OS === "web") {
-            if (window.confirm("Sign out?")) doSignOut();
+            if (window.confirm("Sign out?")) void doSignOut();
           } else {
             setShowSignOutModal(true);
           }
@@ -398,7 +402,10 @@ export default function SettingsScreen() {
         message="Your items are safe — you can sign back in anytime."
         confirmLabel="Sign out"
         confirmDanger={true}
-        onConfirm={() => { setShowSignOutModal(false); doSignOut(); }}
+        onConfirm={() => {
+          setShowSignOutModal(false);
+          void doSignOut();
+        }}
         onCancel={() => setShowSignOutModal(false)}
       />
     </ScrollView>

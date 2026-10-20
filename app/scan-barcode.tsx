@@ -1,7 +1,10 @@
 import { EditorialHeading } from "@/components/EditorialHeading";
 import { radius, spacing } from "@/constants/theme";
 import { useTheme } from "@/context/ThemeContext";
+import { ProductCard } from "@/components/ProductCard";
 import { lookupBarcodeProduct, type BarcodeLookupResult } from "@/lib/barcodeLookup";
+import { suggestIcon } from "@/lib/foodIcons";
+import { stashProduct } from "@/lib/productHandoff";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,10 +26,10 @@ export default function ScanBarcodeScreen() {
   const { itemId } = useLocalSearchParams<ScanRouteParams>();
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
-  const [slowLookup, setSlowLookup] = useState(false);
-  const [handledCode, setHandledCode] = useState<string | null>(null);
+  const handledRef = useRef<string | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [scanResult, setScanResult] = useState<BarcodeLookupResult | null>(null);
+  const [slowLookup, setSlowLookup] = useState(false);
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -46,22 +49,12 @@ export default function ScanBarcodeScreen() {
   }, []);
 
   const goBackWithResult = useCallback(
-    (payload: {
-      barcode: string;
-      name: string | null;
-      quantity: number | null;
-      unit: string | null;
-      notes: string | null;
-    }) => {
-      router.replace({
+    (product: BarcodeLookupResult) => {
+      router.dismissTo({
         pathname: destination,
         params: {
           ...(itemId ? { id: itemId } : {}),
-          scan_code: payload.barcode,
-          scan_name: payload.name ?? "",
-          scan_qty: payload.quantity == null ? "" : String(payload.quantity),
-          scan_unit: payload.unit ?? "",
-          scan_notes: payload.notes ?? "",
+          product_token: stashProduct(product),
           scan_at: String(Date.now()),
         },
       });
@@ -72,20 +65,20 @@ export default function ScanBarcodeScreen() {
   const onBarcodeScanned = useCallback(
     async ({ data }: { data: string }) => {
       const code = data.trim();
-      if (!code || busy || handledCode === code || scanResult) return;
-      setHandledCode(code);
+      if (!code || handledRef.current) return;
+      handledRef.current = code;
       setBusy(true);
       const result = await lookupBarcodeProduct(code);
       setBusy(false);
       setScanResult(result);
     },
-    [busy, handledCode, scanResult]
+    []
   );
 
   const resetScan = useCallback(() => {
     setBusy(false);
     setScanResult(null);
-    setHandledCode(null);
+    handledRef.current = null;
   }, []);
 
   if (!permission) {
@@ -134,13 +127,13 @@ export default function ScanBarcodeScreen() {
         barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e"] }}
         onBarcodeScanned={onBarcodeScanned}
       />
-
+      
       {/* Overlay with Editorial vibe */}
       <View style={styles.overlay}>
         <View style={styles.header}>
             <EditorialHeading bold="Scan" italic="barcode." size={28} color="#fff" />
             <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 4 }}>
-                We'll auto-fill the product info.
+                We&apos;ll auto-fill the product info.
             </Text>
         </View>
 
@@ -181,32 +174,43 @@ export default function ScanBarcodeScreen() {
 
         {scanResult ? (
           <View style={[styles.resultCard, { backgroundColor: colors.surface }]}>
-             {/* Sticker pill */}
             <View
-            style={[
+              style={[
                 styles.stickerPill,
                 {
-                backgroundColor: colors.bandBg.fresh,
-                transform: [{ rotate: "-2deg" }],
+                  backgroundColor: scanResult.name ? colors.bandBg.fresh : colors.bandBg.soon,
+                  transform: [{ rotate: "-2deg" }],
                 },
-            ]}
+              ]}
             >
-            <Text style={[styles.stickerText, { color: colors.bandText.fresh }]}>
-                Product found! ✨
-            </Text>
+              <Text style={[styles.stickerText, { color: scanResult.name ? colors.bandText.fresh : colors.bandText.soon }]}>
+                {scanResult.name ? "Product found! ✨" : "Not in the database"}
+              </Text>
             </View>
 
-            <Text style={[styles.resultTitle, { color: colors.text }]}>{scanResult.name ?? "Product not found"}</Text>
-            <Text style={{ color: colors.textMuted, fontSize: 13 }}>Barcode: {scanResult.barcode}</Text>
+            <ProductCard
+              name={scanResult.name}
+              brand={scanResult.brand}
+              imageUrl={scanResult.image_url}
+              nutrition={scanResult.nutrition}
+              storageTip={scanResult.storage_tip}
+              fallbackIcon={scanResult.name ? suggestIcon(scanResult.name) : undefined}
+            />
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
+              Barcode: {scanResult.barcode}
+              {!scanResult.name && scanResult.notes ? ` · ${scanResult.notes}` : ""}
+            </Text>
 
             <View style={styles.resultActions}>
               <Pressable
                 style={[styles.resultBtn, { backgroundColor: colors.brandBtn }]}
                 onPress={() => goBackWithResult(scanResult)}
                 accessibilityRole="button"
-                accessibilityLabel="Use this product"
+                accessibilityLabel={scanResult.name ? "Use this product" : "Enter the details yourself"}
               >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>Use this product</Text>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                  {scanResult.name ? "Use this product" : "Enter details yourself"}
+                </Text>
               </Pressable>
               <Pressable
                 style={[styles.resultBtn, { backgroundColor: colors.faint }]}
@@ -300,7 +304,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.4,
   },
-  resultTitle: { fontSize: 20, fontWeight: "700", marginBottom: 4 },
   resultActions: { marginTop: 20, gap: 10 },
   resultBtn: {
     paddingVertical: 14,

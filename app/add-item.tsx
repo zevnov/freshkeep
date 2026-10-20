@@ -1,35 +1,46 @@
 import { BucketPicker } from "@/components/add-item/BucketPicker";
+import { IconPicker } from "@/components/add-item/IconPicker";
 import { RemindersSection } from "@/components/add-item/RemindersSection";
 import { SpoilDateSection } from "@/components/add-item/SpoilDateSection";
 import { StoragePicker } from "@/components/add-item/StoragePicker";
+import { ProductCard } from "@/components/ProductCard";
 import { useAddItemStyles } from "@/components/add-item/styles";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
 import { MAX_ITEM_NAME_LENGTH, hasVisibleItemName, normalizeItemName } from "@/lib/itemName";
 import { calculateExpiry, suggestStorage, type ExpiryResult } from "@/lib/expiryEngine";
+import { suggestIcon } from "@/lib/foodIcons";
 import { detectItem } from "@/lib/keywordDetect";
+import { takeProduct } from "@/lib/productHandoff";
+import { storageFromTip } from "@/lib/storageTip";
 import { spoilOnFromShelf, toLocalDateString } from "@/lib/spoil";
-import type { ItemScope, StoragePlace } from "@/types";
+import type { ItemProductInfo, ItemScope, StoragePlace } from "@/types";
 import * as Sentry from "@sentry/react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 
 const MAX_REMIND_DAYS = 365;
+
+function productInfoOf(item: ItemProductInfo | undefined): ItemProductInfo | null {
+  if (!item) return null;
+  const { barcode, brand, image_url, nutrition, storage_tip } = item;
+  if (!barcode && !brand && !image_url && !nutrition && !storage_tip) return null;
+  return { barcode, brand, image_url, nutrition, storage_tip };
+}
 const QUANTITY_PATTERN = /^(?:\d+\.?\d*|\.\d+)$/;
 
 export default function AddItemScreen() {
   const { colors } = useTheme();
   const styles = useAddItemStyles();
-  const { id, scan_at, scan_name, scan_qty, scan_unit, scan_notes, scan_code } = useLocalSearchParams<{
+  const { id, scan_at, scan_name, product_token } = useLocalSearchParams<{
     id?: string;
     scan_at?: string;
+    /** A plain name to prefill (from a knowledge-base search suggestion). */
     scan_name?: string;
-    scan_qty?: string;
-    scan_unit?: string;
-    scan_notes?: string;
-    scan_code?: string;
+    /** A scanned or searched product waiting in productHandoff. */
+    product_token?: string;
   }>();
   const navigation = useNavigation();
   const { profile } = useAuth();
@@ -55,6 +66,8 @@ export default function AddItemScreen() {
     existing?.remind_days_before ? String(existing.remind_days_before) : "0"
   );
   const [opened, setOpened] = useState(false);
+  const [icon, setIcon] = useState<string | null>(existing?.icon ?? null);
+  const [product, setProduct] = useState<ItemProductInfo | null>(() => productInfoOf(existing));
   const [expiryResult, setExpiryResult] = useState<ExpiryResult | null>(null);
   const [showExpiryPicker, setShowExpiryPicker] = useState(false);
   const [showRefPicker, setShowRefPicker] = useState(false);
@@ -63,7 +76,7 @@ export default function AddItemScreen() {
   const lastAutoStorageForRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (existing) {
+    if (existing && initialRef.current?.id !== existing.id) {
       initialRef.current = existing;
       setName(existing.name);
       setScope(existing.scope);
@@ -74,6 +87,8 @@ export default function AddItemScreen() {
       setQuantity(existing.quantity != null ? String(existing.quantity) : "");
       setUnit(existing.unit ?? "");
       setNotes(existing.notes ?? "");
+      setIcon(existing.icon);
+      setProduct(productInfoOf(existing));
     }
   }, [existing]);
 
@@ -81,27 +96,31 @@ export default function AddItemScreen() {
     if (!scan_at || scan_at === appliedScanAtRef.current) return;
     appliedScanAtRef.current = scan_at;
 
-    const scannedName = typeof scan_name === "string" ? scan_name.trim() : "";
-    const scannedQty = typeof scan_qty === "string" ? scan_qty.trim() : "";
-    const scannedUnit = typeof scan_unit === "string" ? scan_unit.trim() : "";
-    const scannedNotes = typeof scan_notes === "string" ? scan_notes.trim() : "";
-    const scannedCode = typeof scan_code === "string" ? scan_code.trim() : "";
+    const picked = takeProduct(product_token);
+    if (picked) {
+      if (picked.name) setName(picked.name);
+      if (picked.quantity != null) setQuantity(String(picked.quantity));
+      if (picked.unit) setUnit(picked.unit);
+      setProduct({
+        barcode: picked.barcode,
+        brand: picked.brand,
+        image_url: picked.image_url,
+        nutrition: picked.nutrition,
+        storage_tip: picked.storage_tip,
+      });
+    } else {
+      const scannedName = typeof scan_name === "string" ? scan_name.trim() : "";
+      if (scannedName) setName(scannedName);
+    }
 
-    if (scannedName) setName(scannedName);
-    if (scannedQty && QUANTITY_PATTERN.test(scannedQty)) setQuantity(scannedQty);
-    if (scannedUnit) setUnit(scannedUnit);
-    if (scannedNotes) setNotes((prev) => (prev.trim() ? `${prev}\n${scannedNotes}` : scannedNotes));
-    if (scannedCode) setNotes((prev) => (prev.includes(`Barcode: ${scannedCode}`) ? prev : `${prev}\nBarcode: ${scannedCode}`.trim()));
+    router.setParams({ scan_at: undefined, scan_name: undefined, product_token: undefined });
+  }, [scan_at, scan_name, product_token]);
 
-    router.setParams({
-      scan_at: undefined,
-      scan_name: undefined,
-      scan_qty: undefined,
-      scan_unit: undefined,
-      scan_notes: undefined,
-      scan_code: undefined,
-    });
-  }, [scan_at, scan_name, scan_qty, scan_unit, scan_notes, scan_code]);
+  // The manufacturer's storage instruction beats the knowledge-base guess, and can depend on "opened".
+  const tipStorage = storageFromTip(product?.storage_tip, opened);
+  useEffect(() => {
+    if (!id && tipStorage) setStorage(tipStorage);
+  }, [id, tipStorage]);
 
   // Auto-detect when name, storage, or opened changes
   useEffect(() => {
@@ -113,8 +132,8 @@ export default function AddItemScreen() {
     }
     const suggestedStorage = suggestStorage(detected);
     let effectiveStorage = storage;
-    // Auto-set storage once per detected item type (don't override manual picks)
-    if (!id && lastAutoStorageForRef.current !== detected.name) {
+    // Auto-set storage once per detected item type (don't override manual picks or the manufacturer's tip)
+    if (!id && !tipStorage && lastAutoStorageForRef.current !== detected.name) {
       setStorage(suggestedStorage);
       lastAutoStorageForRef.current = detected.name;
       effectiveStorage = suggestedStorage;
@@ -138,8 +157,8 @@ export default function AddItemScreen() {
     const days = Math.max(1, parseInt(shelfDays, 10) || 1);
     return spoilOnFromShelf(toLocalDateString(referenceDate), days);
   }, [spoilMode, expiryDate, referenceDate, shelfDays]);
-  const today = useMemo(() => new Date(), []);
-  const todayYmd = useMemo(() => toLocalDateString(today), [today]);
+  const today = new Date();
+  const todayYmd = toLocalDateString(today);
   const spoilDateWarning = useMemo(() => {
     if (spoilOnYmd >= todayYmd) return null;
     return spoilMode === "expiry"
@@ -150,26 +169,36 @@ export default function AddItemScreen() {
   const onSave = useCallback(async () => {
     const normalizedName = normalizeItemName(name);
     if (!hasVisibleItemName(normalizedName)) {
-      Alert.alert("Name required", "Give this item a name.");
+      const msg = "Give this item a name.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Name required", msg);
       return;
     }
     if (normalizedName.length > MAX_ITEM_NAME_LENGTH) {
-      Alert.alert("Name too long", `Keep the item name under ${MAX_ITEM_NAME_LENGTH} characters.`);
+      const msg = `Keep the item name under ${MAX_ITEM_NAME_LENGTH} characters.`;
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Name too long", msg);
       return;
     }
     if (spoilOnYmd < todayYmd) {
-      Alert.alert("Spoil date", "Choose today or a future date for the spoil date.");
+      const msg = "Choose today or a future date for the spoil date.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Spoil date", msg);
       return;
     }
     const trimmedQuantity = quantity.trim();
     if (trimmedQuantity && !QUANTITY_PATTERN.test(trimmedQuantity)) {
-      Alert.alert("Quantity", "Use a plain number for quantity.");
+      const msg = "Use a plain number for quantity.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Quantity", msg);
       return;
     }
     const q = trimmedQuantity ? Number(trimmedQuantity) : null;
     const rd = parseInt(remindDays, 10);
     if (Number.isFinite(rd) && rd > MAX_REMIND_DAYS) {
-      Alert.alert("Reminder days", `Choose ${MAX_REMIND_DAYS} days or fewer.`);
+      const msg = `Choose ${MAX_REMIND_DAYS} days or fewer.`;
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Reminder days", msg);
       return;
     }
     const remindDaysBefore = Number.isFinite(rd) && rd > 0 ? rd : 0;
@@ -180,7 +209,7 @@ export default function AddItemScreen() {
         const { error } = await updateItem(id, {
           name: normalizedName,
           scope,
-          owner_user_id: scope === 'mine' ? profile!.id : null,
+          owner_user_id: scope === 'mine' ? profile?.id ?? null : null,
           storage,
           spoil_on: spoilOnYmd,
           quantity: q,
@@ -188,9 +217,13 @@ export default function AddItemScreen() {
           notes: notes.trim() || null,
           remind_me: remindMe,
           remind_days_before: remindDaysBefore,
+          icon,
+          category: expiryResult?.matchedItem?.category ?? existing.category,
         }, existing.schedule_version);
-        if (error) Alert.alert("Could not save", error.message);
-        else router.back();
+        if (error) {
+          if (Platform.OS === "web") window.alert(error.message);
+          else Alert.alert("Could not save", error.message);
+        } else router.back();
       } else {
         const { error } = await createItem({
           name: normalizedName,
@@ -202,13 +235,20 @@ export default function AddItemScreen() {
           notes: notes.trim() || null,
           remind_me: remindMe,
           remind_days_before: remindDaysBefore,
+          icon,
+          category: expiryResult?.matchedItem?.category ?? null,
+          ...product,
         });
-        if (error) Alert.alert("Could not save", error.message);
-        else router.back();
+        if (error) {
+          if (Platform.OS === "web") window.alert(error.message);
+          else Alert.alert("Could not save", error.message);
+        } else router.back();
       }
     } catch (err) {
       Sentry.captureException(err);
-      Alert.alert("Unexpected error", "Something went wrong. Please try again.");
+      const msg = "Something went wrong. Please try again.";
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Unexpected error", msg);
     } finally {
       setSaving(false);
     }
@@ -225,8 +265,12 @@ export default function AddItemScreen() {
     todayYmd,
     scope,
     storage,
+    profile,
     createItem,
     updateItem,
+    icon,
+    product,
+    expiryResult,
   ]);
 
   useLayoutEffect(() => {
@@ -264,6 +308,29 @@ export default function AddItemScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      {product && (product.nutrition || product.image_url || product.storage_tip || product.brand) ? (
+        <View style={styles.surfaceCard}>
+          <ProductCard
+            name={name.trim() || null}
+            brand={product.brand}
+            imageUrl={product.image_url}
+            nutrition={product.nutrition}
+            storageTip={product.storage_tip}
+            fallbackIcon={icon ?? suggestIcon(name)}
+          />
+          {!id ? (
+            <Pressable
+              onPress={() => setProduct(null)}
+              style={{ marginTop: 10, alignSelf: "flex-start" }}
+              accessibilityRole="button"
+              accessibilityLabel="Remove product details"
+            >
+              <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "600" }}>Remove product details</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
       <Text style={styles.label}>Name</Text>
       <TextInput
         style={styles.input}
@@ -274,13 +341,25 @@ export default function AddItemScreen() {
         placeholderTextColor={colors.textMuted}
       />
       {!id ? (
-        <Pressable
-          style={styles.scanBtn}
-          onPress={() => router.push({ pathname: "/scan-barcode", params: { returnTo: "add-item" } })}
-        >
-          <Text style={styles.scanBtnText}>Scan barcode to auto-fill</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable
+            style={[styles.scanBtn, { flex: 1 }]}
+            onPress={() => router.push({ pathname: "/scan-barcode", params: { returnTo: "add-item" } })}
+          >
+            <Text style={styles.scanBtnText}>Scan barcode</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.scanBtn, { flex: 1 }]}
+            onPress={() => router.push("/quick-add")}
+            accessibilityRole="button"
+            accessibilityLabel="Search popular brands"
+          >
+            <Text style={styles.scanBtnText}>Search brands</Text>
+          </Pressable>
+        </View>
       ) : null}
+
+      <IconPicker icon={icon} suggested={suggestIcon(name, expiryResult?.matchedItem?.category)} onChange={setIcon} />
 
       {expiryResult?.matchedItem ? (
         <Text style={[styles.muted, { marginTop: 2, marginBottom: 4 }]}>
@@ -290,6 +369,11 @@ export default function AddItemScreen() {
 
       <BucketPicker scope={scope} onChange={setScope} />
       <StoragePicker storage={storage} onChange={setStorage} />
+      {tipStorage && product?.storage_tip ? (
+        <Text style={[styles.muted, { marginTop: 2 }]}>
+          📦 Manufacturer says: {product.storage_tip}
+        </Text>
+      ) : null}
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
         <View>

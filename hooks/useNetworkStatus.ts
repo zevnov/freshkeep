@@ -21,12 +21,12 @@ export function useNetworkStatus(): NetworkStatus {
     };
 
     const unsubscribe = NetInfo.addEventListener(applyState);
-    void NetInfo.fetch().then(applyState);
+    void NetInfo.fetch().then(applyState).catch(() => {});
 
     const sub = AppState.addEventListener("change", (next) => {
       const prev = appStateRef.current;
       if ((prev === "background" || prev === "inactive") && next === "active") {
-        void NetInfo.fetch().then(applyState);
+        void NetInfo.fetch().then(applyState).catch(() => {});
       }
       appStateRef.current = next;
     });

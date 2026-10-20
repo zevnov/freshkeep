@@ -56,7 +56,7 @@ async function writeItemsCache(householdId: string, items: ItemRow[]): Promise<v
   }
 }
 
-function notifyUser(title: string, message: string): void {
+export function notifyUser(title: string, message: string): void {
   if (Platform.OS === "web") {
     window.alert(message);
   } else {
@@ -88,7 +88,53 @@ function buildInsertRow(householdId: string, uid: string, payload: CreateItemPay
     schedule_version: 0,
     created_by: uid,
     updated_at: nowIso,
+    ...productFields(payload),
   };
+}
+
+/** Optional on the payload (and absent from mutations queued before these columns existed), so default every field to null. */
+function productFields(payload: CreateItemPayload) {
+  return {
+    category: payload.category ?? null,
+    icon: payload.icon ?? null,
+    barcode: payload.barcode ?? null,
+    brand: payload.brand ?? null,
+    image_url: payload.image_url ?? null,
+    nutrition: payload.nutrition ?? null,
+    storage_tip: payload.storage_tip ?? null,
+  };
+}
+
+const PRODUCT_COLUMNS = ["category", "icon", "barcode", "brand", "image_url", "nutrition", "storage_tip"] as const;
+
+/**
+ * PostgREST's "column not in schema cache" error: the app build is newer than the database
+ * (supabase/patches/items_product_columns.sql not applied yet). Writes then retry without the
+ * product columns, so adding and editing items keeps working; only the extras are dropped.
+ */
+function isMissingProductColumn(error: { code?: string; message: string } | null): boolean {
+  if (!error) return false;
+  return error.code === "PGRST204" && PRODUCT_COLUMNS.some((c) => error.message.includes(`'${c}'`));
+}
+
+function withoutProductColumns<T extends Record<string, unknown>>(row: T): T {
+  const copy: Record<string, unknown> = { ...row };
+  for (const c of PRODUCT_COLUMNS) delete copy[c];
+  return copy as T;
+}
+
+async function insertItemRow(row: Record<string, unknown>) {
+  const res = await supabase.from("items").insert(row).select("*").single();
+  if (!isMissingProductColumn(res.error)) return res;
+  return supabase.from("items").insert(withoutProductColumns(row)).select("*").single();
+}
+
+async function updateItemRow(id: string, expectedVersion: number, patch: Record<string, unknown>) {
+  const run = (p: Record<string, unknown>) =>
+    supabase.from("items").update(p).eq("id", id).eq("schedule_version", expectedVersion).select("*").maybeSingle();
+  const res = await run(patch);
+  if (!isMissingProductColumn(res.error)) return res;
+  return run(withoutProductColumns(patch));
 }
 
 export function ItemsProvider({ children }: { children: React.ReactNode }) {
@@ -151,11 +197,21 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { data, error: qerr } = await supabase
-      .from("items")
-      .select("*")
-      .eq("household_id", householdId)
-      .order("spoil_on", { ascending: true });
+    // The query await itself can throw (auth lock contention, SecureStore failures); route
+    // that through the same handling as a returned error so setLoading(false) still runs.
+    let data: unknown[] | null = null;
+    let qerr: { message: string } | null = null;
+    try {
+      const res = await supabase
+        .from("items")
+        .select("*")
+        .eq("household_id", householdId)
+        .order("spoil_on", { ascending: true });
+      data = res.data;
+      qerr = res.error;
+    } catch (e) {
+      qerr = e instanceof Error ? e : new Error(String(e));
+    }
     if (qerr) {
       // Only a genuine connectivity failure falls back to cache; a server-side error
       // (RLS, auth, bad request) must surface, not be masked by stale data.
@@ -182,8 +238,15 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
             : `Some items could not be loaded (${firstBad}).`
         );
       }
-      setItems(mapped);
-      void writeItemsCache(householdId, mapped);
+      // Server rows can't include optimistic items whose creates are still queued; keep
+      // those (appended, as when they were added) or every refresh wipes them until sync.
+      const pendingCreates = (await peek()).filter(
+        (m): m is Extract<QueuedMutation, { type: "create" }> => m.type === "create"
+      );
+      const pendingTempIds = new Set(pendingCreates.map((m) => m.tempId));
+      const merged = [...mapped, ...itemsRef.current.filter((i) => pendingTempIds.has(i.id))];
+      setItems(merged);
+      void writeItemsCache(householdId, merged);
     }
     setLoading(false);
   }, [user?.id, profile]);
@@ -235,6 +298,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
         created_by: uid,
         created_at: nowIso,
         updated_at: nowIso,
+        ...productFields(payload),
       };
       applyItems((prev) => [...prev, optimisticItem]);
 
@@ -251,7 +315,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
 
       const row = buildInsertRow(householdId, uid, payload, nowIso);
       try {
-        const { data, error: ierr } = await supabase.from("items").insert(row).select("*").single();
+        const { data, error: ierr } = await insertItemRow(row);
         if (ierr) {
           if (isNetworkErrorMessage(ierr.message)) return queueAndReturn();
           applyItems((prev) => prev.filter((i) => i.id !== tempId));
@@ -321,13 +385,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
 
       const nextPatch = { ...patch, schedule_version: nextVersion, updated_at: nowIso };
       try {
-        const { data, error: uerr } = await supabase
-          .from("items")
-          .update(nextPatch)
-          .eq("id", id)
-          .eq("schedule_version", currentVersion)
-          .select("*")
-          .maybeSingle();
+        const { data, error: uerr } = await updateItemRow(id, currentVersion, nextPatch);
         if (uerr) {
           if (isNetworkErrorMessage(uerr.message)) return queueAndReturn();
           rollbackOptimistic();
@@ -383,6 +441,10 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       const stateChanges = new Map<string, ItemRow | null>();
       const droppedTempIds = new Set<string>();
       const pendingTempIds = new Set<string>();
+      // Real id -> tempId for creates resolved in this batch: an update remapped to the real
+      // id must also claim the optimistic tempId slot (state still keys the item by tempId),
+      // and a resolved create missing from state entirely gets re-inserted at the end.
+      const tempIdByResolvedId = new Map<string, string>();
       const failedNames: string[] = [];
       let hadConflict = false;
       let needsRefresh = false;
@@ -403,7 +465,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
         };
 
         try {
-          const { data, error: ierr } = await supabase.from("items").insert(row).select("*").single();
+          const { data, error: ierr } = await insertItemRow(row);
           if (ierr) {
             if (isNetworkErrorMessage(ierr.message)) {
               pendingTempIds.add(mutation.tempId); // transient; retry whole chain next sync
@@ -423,6 +485,7 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
           }
           const resolved = pr.value;
           stateChanges.set(mutation.tempId, resolved);
+          tempIdByResolvedId.set(resolved.id, mutation.tempId);
           // Resolve the create and remap dependent updates to the real row id in the same
           // persisted step, so a crash after this point replays nothing and orphans nothing.
           const stepResolutions = new Map<string, QueuedMutation | null>([[key, null]]);
@@ -458,13 +521,11 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
           updated_at: nowIso,
         };
         try {
-          const { data, error: uerr } = await supabase
-            .from("items")
-            .update(nextPatch)
-            .eq("id", mutation.itemId)
-            .eq("schedule_version", mutation.expectedScheduleVersion)
-            .select("*")
-            .maybeSingle();
+          const { data, error: uerr } = await updateItemRow(
+            mutation.itemId,
+            mutation.expectedScheduleVersion,
+            nextPatch
+          );
           if (uerr) {
             if (!isNetworkErrorMessage(uerr.message)) {
               // Permanent server rejection: drop it and refresh to restore server truth.
@@ -488,6 +549,10 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
             continue;
           }
           stateChanges.set(mutation.itemId, pr.value);
+          // If this update targeted a create resolved above, state still holds the item under
+          // its tempId — the edited row must win that slot too, not just the real id.
+          const createdTempId = tempIdByResolvedId.get(mutation.itemId);
+          if (createdTempId) stateChanges.set(createdTempId, pr.value);
           await persistResolutions(new Map([[key, null]]));
         } catch (e) {
           const err = e instanceof Error ? e : new Error(String(e));
@@ -501,13 +566,31 @@ export function ItemsProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (stateChanges.size > 0) {
-        applyItems((prev) =>
-          prev.flatMap((i) => {
-            if (!stateChanges.has(i.id)) return [i];
+        applyItems((prev) => {
+          // A create and its follow-up update resolve to the same row id, and a mid-sync
+          // refresh may already have delivered that id: emit each resolved row once.
+          const seenIds = new Set<string>();
+          const next = prev.flatMap((i) => {
+            if (!stateChanges.has(i.id)) {
+              seenIds.add(i.id);
+              return [i];
+            }
             const change = stateChanges.get(i.id);
-            return change ? [change] : [];
-          })
-        );
+            if (!change || seenIds.has(change.id)) return [];
+            seenIds.add(change.id);
+            return [change];
+          });
+          // A resolved create whose tempId slot is gone from state (a refresh wiped it
+          // mid-sync) must be re-inserted, not dropped — it exists on the server.
+          for (const tempId of tempIdByResolvedId.values()) {
+            const change = stateChanges.get(tempId);
+            if (change && !seenIds.has(change.id)) {
+              seenIds.add(change.id);
+              next.push(change);
+            }
+          }
+          return next;
+        });
       }
       if (hadConflict) {
         notifyUser(

@@ -1,7 +1,10 @@
+import { ProductCard } from "@/components/ProductCard";
 import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useRecallAlerts } from "@/hooks/useRecallAlerts";
+import { itemIcon } from "@/lib/foodIcons";
 import {
   computeFreshnessBand,
   daysUntilSpoil,
@@ -11,9 +14,11 @@ import {
 } from "@/lib/spoil";
 import type { FreshnessBand } from "@/types";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -43,8 +48,11 @@ export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user, profile } = useAuth();
   const { items, updateItem, loading } = useItems();
+  const { byItem: recallsByItem, dismiss: dismissRecall } = useRecallAlerts();
 
   const item = items.find((i) => i.id === id);
+  const versionRef = useRef(item?.schedule_version ?? 0);
+  versionRef.current = item?.schedule_version ?? 0;
 
   if (!user) return <Redirect href="/(auth)/login" />;
 
@@ -57,7 +65,7 @@ export default function ItemDetailScreen() {
         ]}
       >
         <Text style={{ color: colors.textMuted, textAlign: "center" }}>
-          This item is gone or you don't have access.
+          This item is gone or you don&apos;t have access.
         </Text>
         <Pressable
           style={[styles.primaryBtn, { backgroundColor: colors.brandBtn }]}
@@ -105,7 +113,7 @@ export default function ItemDetailScreen() {
     if (Platform.OS === "web") {
       const confirmed = window.confirm(label);
       if (!confirmed) return;
-      const error = await applyStatus();
+      const error = await applyStatus(versionRef.current);
       if (error) window.alert("Could not update: " + error.message);
       else router.back();
       return;
@@ -118,7 +126,7 @@ export default function ItemDetailScreen() {
         style: status === "consumed" ? "default" : "destructive",
         onPress: () => {
           void (async () => {
-            const error = await applyStatus(item?.schedule_version ?? 0);
+            const error = await applyStatus(versionRef.current);
             if (error) Alert.alert("Could not update", error.message);
             else router.back();
           })();
@@ -136,6 +144,8 @@ export default function ItemDetailScreen() {
 
   const rows: [string, string][] = [
     ["Storage", item.storage.charAt(0).toUpperCase() + item.storage.slice(1)],
+    ...(item.brand ? ([["Brand", item.brand]] as [string, string][]) : []),
+    ...(item.category ? ([["Food type", item.category.charAt(0).toUpperCase() + item.category.slice(1)]] as [string, string][]) : []),
     ["Spoil date", `${formatSpoilDate(item.spoil_on)} (${spoilLabel})`],
     ["Status", statusLabel(item.status)],
     ...(item.quantity != null
@@ -179,6 +189,9 @@ export default function ItemDetailScreen() {
           </Text>
         </View>
 
+        <Text style={styles.heroIcon} accessibilityElementsHidden importantForAccessibility="no">
+          {itemIcon(item)}
+        </Text>
         <Text style={[styles.heroName, { color: heroTx }]}>{item.name}</Text>
 
         {/* Big countdown */}
@@ -203,6 +216,55 @@ export default function ItemDetailScreen() {
           ✦
         </Text>
       </View>
+
+      {(recallsByItem.get(item.id) ?? []).map((recall) => (
+        <View key={recall.id} style={[styles.recallCard, { backgroundColor: colors.bandBg.overdue }]}>
+          <Text style={[styles.recallTitle, { color: colors.bandText.overdue }]}>
+            ⚠️ Recalled{recall.classification ? ` · ${recall.classification}` : ""}
+          </Text>
+          {recall.reason ? (
+            <Text style={[styles.recallText, { color: colors.bandText.overdue }]}>{recall.reason}</Text>
+          ) : null}
+          <Text style={[styles.recallMeta, { color: colors.bandText.overdue }]} numberOfLines={4}>
+            {recall.product_description}
+            {recall.recalling_firm ? ` · ${recall.recalling_firm}` : ""}
+            {recall.report_date ? ` · reported ${recall.report_date}` : ""}
+          </Text>
+          <Text style={[styles.recallMeta, { color: colors.bandText.overdue }]}>
+            Matched by barcode. Check the lot or best-by codes on your package against the recall before throwing it out.
+          </Text>
+          <View style={styles.recallActions}>
+            {recall.url ? (
+              <Pressable onPress={() => void Linking.openURL(recall.url as string)} accessibilityRole="link">
+                <Text style={[styles.recallLink, { color: colors.bandText.overdue }]}>FDA report {recall.recall_number} →</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => {
+                void dismissRecall(recall.id).then(({ error }) => {
+                  if (error) Alert.alert("Could not dismiss", error);
+                });
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.recallLink, { color: colors.bandText.overdue }]}>Not my lot · dismiss</Text>
+            </Pressable>
+          </View>
+        </View>
+      ))}
+
+      {item.nutrition || item.image_url || item.storage_tip ? (
+        <View style={[styles.detailCard, { backgroundColor: colors.surface, padding: spacing.md }]}>
+          <ProductCard
+            name={item.name}
+            brand={item.brand}
+            imageUrl={item.image_url}
+            nutrition={item.nutrition}
+            storageTip={item.storage_tip}
+            fallbackIcon={itemIcon(item)}
+          />
+        </View>
+      ) : null}
 
       {/* Detail rows card */}
       <View style={[styles.detailCard, { backgroundColor: colors.surface }]}>
@@ -293,6 +355,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.4,
   },
+  heroIcon: { fontSize: 40, marginBottom: 6 },
   heroName: {
     fontSize: 24,
     fontWeight: "700",
@@ -323,6 +386,12 @@ const styles = StyleSheet.create({
     right: 14,
     fontSize: 52,
   },
+  recallCard: { borderRadius: radius.lg, padding: spacing.md, gap: 6 },
+  recallTitle: { fontSize: 16, fontWeight: "700" },
+  recallText: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  recallMeta: { fontSize: 12, lineHeight: 17, opacity: 0.8 },
+  recallActions: { flexDirection: "row", gap: spacing.lg, marginTop: 4 },
+  recallLink: { fontSize: 13, fontWeight: "700" },
   detailCard: {
     borderRadius: radius.lg,
     overflow: "hidden",

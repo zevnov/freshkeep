@@ -11,6 +11,7 @@ import {
   requestExpoNotificationPermissionsAsync,
   rescheduleAllItems,
 } from "@/lib/notifications";
+import { registerPushToken } from "@/lib/pushTokens";
 import type { NotificationStyle } from "@/types";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Redirect, router } from "expo-router";
@@ -38,7 +39,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const pickerTheme = isDark ? "dark" : "light";
   const { configured, user, profile, signOut, updateNotificationPrefs } = useAuth();
-  const { items, refresh } = useItems();
+  const { items } = useItems();
   const [busy, setBusy] = useState(false);
   const [showDigestTime, setShowDigestTime] = useState(false);
   const [showSignOutModal, setShowSignOutModal] = useState(false);
@@ -46,7 +47,7 @@ export default function SettingsScreen() {
   const prefs = profile?.notification_prefs;
 
   const lavBg = isDark ? "#150E28" : "#D8CCFF";
-  const lavTx = "#2A1A6B";
+  const lavTx = isDark ? "#D8CCFF" : "#2A1A6B";
 
   const toggle = useCallback(
     async (patch: Parameters<typeof updateNotificationPrefs>[0]) => {
@@ -81,13 +82,41 @@ export default function SettingsScreen() {
     [prefs, updateNotificationPrefs, items]
   );
 
+  /** Household and recall pushes come from the server, independent of local spoil reminders. */
+  const toggleRemote = useCallback(
+    async (patch: { notifyHouseholdActivity?: boolean; notifyRecalls?: boolean }) => {
+      if (!prefs) return;
+      const turningOn = patch.notifyHouseholdActivity === true || patch.notifyRecalls === true;
+      if (turningOn && nativeNotificationsSupported) {
+        const existing = await getExpoNotificationPermissionsAsync();
+        if (existing && existing.status !== "granted") {
+          const next = await requestExpoNotificationPermissionsAsync();
+          if (next && next.status !== "granted") {
+            Alert.alert("Notifications", "Allow notifications to get household updates and recall alerts.");
+            return;
+          }
+        }
+      }
+      setBusy(true);
+      try {
+        const { error } = await updateNotificationPrefs(patch);
+        if (error) Alert.alert("Could not save", error.message);
+        else if (turningOn) await registerPushToken();
+      } catch (err) {
+        Sentry.captureException(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [prefs, updateNotificationPrefs]
+  );
+
   const doSignOut = () => {
     void (async () => {
       await signOut();
       if (Platform.OS === "web") {
         window.location.replace("/login");
       } else {
-        await refresh();
         router.replace("/(auth)/login");
       }
     })();
@@ -141,14 +170,24 @@ export default function SettingsScreen() {
 
       {/* Account card */}
       <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Account</Text>
-      <View style={[styles.card, { backgroundColor: colors.surface }]}>
-        <Text style={{ fontSize: 15, fontWeight: "600", color: colors.text }}>
-          {profile.display_name || "Signed in"}
-        </Text>
-        <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
-          {user.email}
-        </Text>
-      </View>
+      <Pressable
+        style={[styles.card, { backgroundColor: colors.surface }]}
+        onPress={() => router.push("/profile")}
+        accessibilityRole="button"
+        accessibilityLabel="Open your profile"
+      >
+        <View style={styles.rowBetween}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.text }}>
+              {profile.display_name || "Signed in"}
+            </Text>
+            <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
+              {user.email}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: colors.brand }}>Profile →</Text>
+        </View>
+      </Pressable>
 
       {/* Join household link */}
       <Pressable
@@ -307,6 +346,34 @@ export default function SettingsScreen() {
               onValueChange={(v) => void fn(v)}
               disabled={busy || !prefs.masterEnabled}
             />
+          </View>
+        ))}
+      </View>
+
+      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Household & safety alerts</Text>
+      <View style={[styles.card, { backgroundColor: colors.surface }]}>
+        {(
+          [
+            [
+              "Household activity",
+              "When someone adds, uses up or tosses a shared item",
+              prefs.notifyHouseholdActivity,
+              (v: boolean) => toggleRemote({ notifyHouseholdActivity: v }),
+            ],
+            [
+              "Product recalls",
+              "FDA recalls that match a barcode you scanned",
+              prefs.notifyRecalls,
+              (v: boolean) => toggleRemote({ notifyRecalls: v }),
+            ],
+          ] as const
+        ).map(([label, hint, val, fn]) => (
+          <View key={label} style={styles.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 15, fontWeight: "500", color: colors.text }}>{label}</Text>
+              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>{hint}</Text>
+            </View>
+            <Switch value={val} onValueChange={(v) => void fn(v)} disabled={busy} />
           </View>
         ))}
       </View>

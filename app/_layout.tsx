@@ -1,15 +1,17 @@
 import "react-native-gesture-handler";
 
-import { AuthProvider } from "@/context/AuthContext";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ItemsProvider } from "@/context/ItemsContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import * as Sentry from "@sentry/react-native";
 import Constants from "expo-constants";
 import { registerBackgroundNotificationTaskAsync } from "@/lib/backgroundNotifications";
-import { ensureNotificationChannel } from "@/lib/notifications";
-import { Stack } from "expo-router";
+import { addNotificationTapListener, ensureNotificationChannel } from "@/lib/notifications";
+import { hasRegisteredPushToken, registerPushToken } from "@/lib/pushTokens";
+import { router, Stack } from "expo-router";
 import { useEffect } from "react";
+import { AppState } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN?.trim();
@@ -22,6 +24,36 @@ Sentry.init({
   release: Constants.expoConfig?.version ? `freshkeep@${Constants.expoConfig.version}` : undefined,
   tracesSampleRate: 1.0,
 });
+
+/** Registers this device for remote pushes once signed in, and routes notification taps. */
+function PushBridge() {
+  const { user } = useAuth();
+  const userId = user?.id;
+
+  useEffect(() => {
+    if (!userId) return;
+    const register = () => registerPushToken().catch((err) => Sentry.captureException(err));
+    void register();
+    // Permission is often granted later (e.g. from Settings or the OS settings app), so try
+    // again whenever the app comes back to the foreground until a token is stored.
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && !hasRegisteredPushToken()) void register();
+    });
+    return () => sub.remove();
+  }, [userId]);
+
+  useEffect(
+    () =>
+      addNotificationTapListener((data) => {
+        if (data.type === "recall" && typeof data.itemId === "string") {
+          router.push({ pathname: "/item/[id]", params: { id: data.itemId } });
+        }
+      }),
+    []
+  );
+
+  return null;
+}
 
 function RootStack() {
   const { colors, isDark } = useTheme();
@@ -42,9 +74,11 @@ function RootStack() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="add-item" options={{ title: "Add item", presentation: "modal" }} />
+        <Stack.Screen name="quick-add" options={{ title: "Quick add", presentation: "modal" }} />
         <Stack.Screen name="scan-barcode" options={{ title: "Scan barcode", presentation: "fullScreenModal" }} />
         <Stack.Screen name="bulk-scan" options={{ title: "Bulk scanner", presentation: "fullScreenModal" }} />
         <Stack.Screen name="receipt-scan" options={{ title: "Receipt scanner", presentation: "fullScreenModal" }} />
+        <Stack.Screen name="profile" options={{ title: "Your profile" }} />
         <Stack.Screen name="join-household" options={{ title: "Join household", presentation: "modal" }} />
         <Stack.Screen name="item/[id]" options={{ headerShown: false }} />
       </Stack>
@@ -63,6 +97,7 @@ function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <ItemsProvider>
+            <PushBridge />
             <RootStack />
           </ItemsProvider>
         </AuthProvider>

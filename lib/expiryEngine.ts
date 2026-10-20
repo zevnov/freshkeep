@@ -40,6 +40,9 @@ export function calculateExpiry(
       if (detected.freezerDays != null) {
         days = detected.freezerDays;
         storageLabel = "frozen";
+      } else if (!detected.perishable) {
+        days = 365; // Non-perishable = ~1 year
+        storageLabel = storage;
       } else {
         // Can't freeze this — fall back to fridge
         days = detected.fridgeDays ?? 7;
@@ -53,7 +56,7 @@ export function calculateExpiry(
         storageLabel = storage;
       } else {
         // Perishable on counter — shorter than fridge
-        days = Math.round((detected.fridgeDays ?? 7) * 0.4);
+        days = Math.max(1, Math.round((detected.fridgeDays ?? 7) * 0.4));
         storageLabel = storage;
       }
       break;
@@ -92,5 +95,7 @@ function addDays(date: Date, days: number): Date {
 export function suggestStorage(detected: DetectedItem | null): StoragePlace {
   if (!detected) return "fridge";
   if (!detected.perishable) return "pantry";
+  // Frozen goods (freezer life only) belong in the freezer, not the fridge
+  if (detected.category === "frozen" || (detected.freezerDays != null && detected.fridgeDays == null)) return "freezer";
   return "fridge"; // perishable items default to fridge
 }

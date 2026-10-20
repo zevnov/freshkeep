@@ -13,6 +13,11 @@ type Props = {
   onCancel: () => void;
 };
 
+function withAlpha(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "").slice(0, 6).padEnd(6, "0");
+  return `#${clean}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+}
+
 export function ConfirmationModal({
   visible,
   title,
@@ -43,7 +48,7 @@ export function ConfirmationModal({
           <View
             style={[
               styles.stickerPill,
-              { backgroundColor: confirmDanger ? colors.danger + "22" : colors.primaryMuted },
+              { backgroundColor: confirmDanger ? withAlpha(colors.danger, 0.13) : colors.primaryMuted },
             ]}
           >
             <Text

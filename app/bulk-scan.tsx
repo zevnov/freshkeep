@@ -69,7 +69,16 @@ export default function BulkScanScreen() {
       setLookingUp(false);
 
       const productName = result.name ?? "Unknown";
-      const newItem = buildBulkQueueItem(productName, code);
+      const newItem = {
+        ...buildBulkQueueItem(productName, code),
+        product: {
+          barcode: code,
+          brand: result.brand,
+          image_url: result.image_url,
+          nutrition: result.nutrition,
+          storage_tip: result.storage_tip,
+        },
+      };
       setScannedItems((prev) => [newItem, ...prev]);
 
       setTimeout(() => {

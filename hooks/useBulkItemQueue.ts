@@ -1,8 +1,8 @@
-import { useItems } from "@/context/ItemsContext";
+import { notifyUser, useItems } from "@/context/ItemsContext";
 import type { BulkQueueItem } from "@/lib/bulkScanItems";
 import { calculateExpiry } from "@/lib/expiryEngine";
+import { storageFromTip } from "@/lib/storageTip";
 import { useCallback, useState } from "react";
-import { Alert } from "react-native";
 
 export type BulkSaveFailure = {
   name: string;
@@ -65,34 +65,45 @@ export function useBulkItemQueue() {
     const savedIds = new Set<string>();
     let saved = 0;
 
-    for (const item of items) {
-      const storage = item.perishable ? ("fridge" as const) : ("pantry" as const);
-      const { spoilDate: spoilOn } = calculateExpiry(item.name, storage, false);
-      const { error } = await createItem({
-        scope: "ours",
-        name: item.name,
-        storage,
-        spoil_on: spoilOn,
-        quantity: item.quantity,
-        unit: null,
-        notes: null,
-        remind_me: false,
-        remind_days_before: 0,
-      });
+    try {
+      for (const item of items) {
+        const storage =
+          storageFromTip(item.product?.storage_tip, false) ?? (item.perishable ? ("fridge" as const) : ("pantry" as const));
+        const { spoilDate: spoilOn } = calculateExpiry(item.name, storage, false);
+        let error: Error | null;
+        try {
+          ({ error } = await createItem({
+            scope: "ours",
+            name: item.name,
+            storage,
+            spoil_on: spoilOn,
+            quantity: item.quantity,
+            unit: null,
+            notes: null,
+            remind_me: false,
+            remind_days_before: 0,
+            category: item.category,
+            barcode: item.barcode,
+            ...item.product,
+          }));
+        } catch (e) {
+          error = e instanceof Error ? e : new Error(String(e));
+        }
 
-      if (error) {
-        failures.push({ name: item.name, message: error.message });
-      } else {
-        saved += 1;
-        savedIds.add(item.id);
+        if (error) {
+          failures.push({ name: item.name, message: error.message });
+        } else {
+          saved += 1;
+          savedIds.add(item.id);
+        }
       }
-    }
 
-    if (savedIds.size > 0) {
-      setItems((prev) => prev.filter((i) => !savedIds.has(i.id)));
+      if (savedIds.size > 0) {
+        setItems((prev) => prev.filter((i) => !savedIds.has(i.id)));
+      }
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
     return { saved, failures, total: items.length };
   }, [items, createItem]);
 
@@ -120,7 +131,7 @@ export function useBulkItemQueue() {
           : "";
 
       if (result.saved === 0) {
-        Alert.alert(
+        notifyUser(
           "Could not save items",
           result.failures.length === 1
             ? `${result.failures[0].name}: ${result.failures[0].message}`
@@ -129,10 +140,9 @@ export function useBulkItemQueue() {
         return;
       }
 
-      Alert.alert(
+      notifyUser(
         "Partially saved",
-        `${result.saved} of ${result.total} items saved. Could not save: ${failedNames}${more}. Failed items remain in your list.`,
-        [{ text: "OK" }]
+        `${result.saved} of ${result.total} items saved. Could not save: ${failedNames}${more}. Failed items remain in your list.`
       );
     },
     [saveAll]

@@ -1,6 +1,9 @@
-import type { NotificationPrefs, ItemScope, StoragePlace } from "@/types";
-import { DEFAULT_NOTIFICATION_PREFS } from "@/types";
+import type { NotificationPrefs } from "@/types";
+import { isNetworkErrorMessage } from "@/lib/networkError";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { fetchProfileForUser, type Profile } from "@/lib/profile";
+import { unregisterPushToken } from "@/lib/pushTokens";
+import * as Sentry from "@sentry/react-native";
 import type { Session, User } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -9,14 +12,7 @@ import { AppState, type AppStateStatus } from "react-native";
 
 WebBrowser.maybeCompleteAuthSession();
 
-export type Profile = {
-  id: string;
-  display_name: string | null;
-  household_id: string;
-  default_bucket: ItemScope;
-  default_storage: StoragePlace;
-  notification_prefs: NotificationPrefs;
-};
+export type { Profile };
 
 type AuthContextValue = {
   configured: boolean;
@@ -41,8 +37,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function mapAuthNetworkError(err: Error): Error {
-  const m = err.message;
-  if (/network request failed|failed to fetch|networkerror|typeerror/i.test(m)) {
+  if (isNetworkErrorMessage(err.message)) {
     return new Error(
       "Cannot reach Supabase. Check EXPO_PUBLIC_SUPABASE_URL and key in .env (no quotes or trailing spaces), then run npx expo start -c. On a phone, use your cloud https://…supabase.co URL or your PC’s LAN IP for local Supabase—not localhost."
     );
@@ -69,68 +64,6 @@ function readOAuthParam(callbackUrl: string, name: string): string | null {
   return new URLSearchParams(hash).get(name);
 }
 
-function clampInt(n: unknown, min: number, max: number, fallback: number): number {
-  const x = typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : Number.parseInt(String(n), 10);
-  if (!Number.isFinite(x)) return fallback;
-  return Math.min(max, Math.max(min, x));
-}
-
-function mergePrefs(raw: unknown): NotificationPrefs {
-  if (!raw || typeof raw !== "object") return { ...DEFAULT_NOTIFICATION_PREFS };
-  const o = raw as Record<string, unknown>;
-  const base = { ...DEFAULT_NOTIFICATION_PREFS, ...(raw as Partial<NotificationPrefs>) };
-  return {
-    ...base,
-    notificationStyle: o.notificationStyle === "digest" ? "digest" : "individual",
-    digestHour: clampInt(o.digestHour, 0, 23, DEFAULT_NOTIFICATION_PREFS.digestHour),
-    digestMinute: clampInt(o.digestMinute, 0, 59, DEFAULT_NOTIFICATION_PREFS.digestMinute),
-  };
-}
-
-const VALID_STORAGE_PLACES: readonly StoragePlace[] = ["fridge", "freezer", "pantry", "counter"];
-
-function isStoragePlace(v: string): v is StoragePlace {
-  return (VALID_STORAGE_PLACES as readonly string[]).includes(v);
-}
-
-function mapProfile(row: {
-  id: string;
-  display_name: string | null;
-  household_id: string;
-  default_bucket: string;
-  default_storage: string;
-  notification_settings: unknown;
-}): Profile {
-  return {
-    id: row.id,
-    display_name: row.display_name,
-    household_id: row.household_id,
-    default_bucket: row.default_bucket === "mine" ? "mine" : "ours",
-    default_storage: isStoragePlace(row.default_storage) ? row.default_storage : "fridge",
-    notification_prefs: mergePrefs(row.notification_settings),
-  };
-}
-
-const PROFILE_SELECT =
-  "id, display_name, household_id, default_bucket, default_storage, notification_settings" as const;
-
-/** Fetches profile with retries (helps flaky mobile networks / cold auth). */
-async function fetchProfileForUser(userId: string): Promise<Profile | null> {
-  const maxAttempts = 3;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select(PROFILE_SELECT)
-      .eq("id", userId)
-      .maybeSingle();
-    if (!error && data) return mapProfile(data);
-    if (attempt < maxAttempts - 1) {
-      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
-    }
-  }
-  return null;
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const configured = isSupabaseConfigured;
   const [session, setSession] = useState<Session | null>(null);
@@ -154,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const uid = session?.user?.id;
     if (!uid) return null;
     const p = await fetchProfileForUser(uid);
-    if (p) setProfile(p);
+    if (p && mountedRef.current) setProfile(p);
     return p;
   }, [session?.user?.id]);
 
@@ -165,11 +98,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-      setSession(data.session ?? null);
-      if (data.session?.user) await loadProfile(data.session.user.id);
-      setLoading(false);
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (cancelled) return;
+        setSession(data.session ?? null);
+        if (data.session?.user) await loadProfile(data.session.user.id);
+      } catch (err) {
+        // A transient startup failure must not wedge the app on the auth-loading gate.
+        Sentry.captureException(err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
 
     const {
@@ -240,6 +179,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    try {
+      await unregisterPushToken();
+    } catch (err) {
+      Sentry.captureException(err);
+    }
     await supabase.auth.signOut();
     setProfile(null);
   }, []);

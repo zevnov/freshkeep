@@ -10,7 +10,23 @@ export function toLocalDateString(d: Date): string {
 
 export function parseLocalDate(ymd: string): Date {
   const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, m - 1, d);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) {
+    throw new RangeError(`Invalid local date: ${ymd}`);
+  }
+  if (m < 1 || m > 12 || d < 1 || d > 31) {
+    throw new RangeError(`Invalid local date: ${ymd}`);
+  }
+
+  const parsed = new Date(y, m - 1, d);
+  if (
+    parsed.getFullYear() !== y ||
+    parsed.getMonth() !== m - 1 ||
+    parsed.getDate() !== d
+  ) {
+    throw new RangeError(`Invalid local date: ${ymd}`);
+  }
+
+  return parsed;
 }
 
 export function addDaysLocal(ymd: string, days: number): string {

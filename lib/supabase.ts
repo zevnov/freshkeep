@@ -1,14 +1,41 @@
 import { createClient } from "@supabase/supabase-js";
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 const extra = Constants.expoConfig?.extra as { supabaseUrl?: string; supabaseAnonKey?: string } | undefined;
 
-const SecureStoreAdapter = {
-  getItem: (key: string) => SecureStore.getItemAsync(key),
-  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
-  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
+// SecureStore doesn't work on web; fall back to localStorage.
+const isWeb = Platform.OS === "web";
+
+const secureStoreOptions: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
 };
+
+const storageAdapter = isWeb
+  ? {
+      getItem: (key: string) => {
+        if (typeof localStorage !== "undefined") return Promise.resolve(localStorage.getItem(key));
+        return Promise.resolve(null);
+      },
+      setItem: (key: string, value: string) => {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(key, value);
+        }
+        return Promise.resolve();
+      },
+      removeItem: (key: string) => {
+        if (typeof localStorage !== "undefined") {
+          localStorage.removeItem(key);
+        }
+        return Promise.resolve();
+      },
+    }
+  : {
+      getItem: (key: string) => SecureStore.getItemAsync(key, secureStoreOptions),
+      setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value, secureStoreOptions),
+      removeItem: (key: string) => SecureStore.deleteItemAsync(key, secureStoreOptions),
+    };
 
 /** Prefer env (Metro inlines EXPO_PUBLIC_*); fall back to app.config.js `extra` from dotenv. */
 const url = (process.env.EXPO_PUBLIC_SUPABASE_URL || extra?.supabaseUrl || "").trim();
@@ -47,7 +74,7 @@ const clientAnonKey = isSupabaseConfigured ? anonKey : "placeholder";
 
 export const supabase = createClient(clientUrl, clientAnonKey, {
   auth: {
-    storage: SecureStoreAdapter,
+    storage: storageAdapter,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

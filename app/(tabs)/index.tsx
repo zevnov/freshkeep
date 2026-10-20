@@ -3,6 +3,11 @@ import { radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useItems } from "@/context/ItemsContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useRecallAlerts } from "@/hooks/useRecallAlerts";
+import type { ExpiryItem } from "@/lib/expiryKnowledge";
+import { itemIcon } from "@/lib/foodIcons";
+import { groupByCategory, isItemSort, ITEM_SORT_OPTIONS, sortItems, type ItemSort } from "@/lib/itemSort";
+import { filterItemsByQuery, normalizeQuery, searchKnowledgeBase } from "@/lib/search";
 import {
   computeFreshnessBand,
   daysUntilSpoil,
@@ -11,8 +16,9 @@ import {
   toLocalDateString,
 } from "@/lib/spoil";
 import type { FreshnessBand, ItemRow, ItemScope } from "@/types";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Redirect, router, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -21,11 +27,18 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Filter = "all" | ItemScope;
+
+type ListRow =
+  | { type: "item"; key: string; item: ItemRow }
+  | { type: "header"; key: string; label: string; icon: string; count: number };
+
+const SORT_STORAGE_KEY = "freshkeep-home-sort";
 
 const BAND_LABEL: Record<FreshnessBand, string> = {
   fresh: "Fresh ✓",
@@ -78,7 +91,29 @@ export default function HomeScreen() {
   const { configured, user, profile } = useAuth();
   const { items, loading, error, refresh } = useItems();
   const [filter, setFilter] = useState<Filter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sort, setSort] = useState<ItemSort>("urgency");
+  const { byItem: recallsByItem } = useRecallAlerts();
+
+  useEffect(() => {
+    AsyncStorage.getItem(SORT_STORAGE_KEY)
+      .then((saved) => {
+        if (isItemSort(saved)) setSort(saved);
+      })
+      .catch(() => {
+        /* a remembered sort is a convenience; default to urgency */
+      });
+  }, []);
+
+  const changeSort = useCallback((next: ItemSort) => {
+    setSort(next);
+    AsyncStorage.setItem(SORT_STORAGE_KEY, next).catch(() => {
+      /* best-effort */
+    });
+  }, []);
   const insets = useSafeAreaInsets();
+  const trimmedQuery = searchQuery.trim();
+  const isSearching = trimmedQuery.length > 0;
 
   useFocusEffect(
     useCallback(() => {
@@ -100,8 +135,29 @@ export default function HomeScreen() {
       filter === "all"
         ? activeItems
         : activeItems.filter((i) => i.scope === filter);
-    return sortItemsByUrgency(scoped, soonDays);
-  }, [activeItems, filter, soonDays]);
+    return filterItemsByQuery(scoped, trimmedQuery);
+  }, [activeItems, filter, trimmedQuery]);
+
+  const byUrgency = useMemo(() => sortItemsByUrgency(filtered, soonDays), [filtered, soonDays]);
+
+  const listRows = useMemo<ListRow[]>(() => {
+    if (sort === "type") {
+      return groupByCategory(filtered, soonDays).flatMap((g) => [
+        { type: "header" as const, key: `h-${g.label}`, label: g.label, icon: g.icon, count: g.items.length },
+        ...g.items.map((item) => ({ type: "item" as const, key: item.id, item })),
+      ]);
+    }
+    const sorted = sort === "urgency" ? byUrgency : sortItems(filtered, sort, soonDays);
+    return sorted.map((item) => ({ type: "item" as const, key: item.id, item }));
+  }, [sort, filtered, byUrgency, soonDays]);
+
+  const knowledgeSuggestions = useMemo(() => {
+    if (!isSearching) return [];
+    const ownedNames = new Set(activeItems.map((i) => normalizeQuery(i.name)));
+    return searchKnowledgeBase(trimmedQuery).filter(
+      (entry) => !ownedNames.has(normalizeQuery(entry.name))
+    );
+  }, [isSearching, trimmedQuery, activeItems]);
 
   const counts = useMemo(() => {
     const fresh = activeItems.filter(
@@ -117,10 +173,13 @@ export default function HomeScreen() {
     return { fresh, soon, overdue };
   }, [activeItems, soonDays, todayYmd]);
 
-  if (!configured) return <Redirect href="/setup" />;
-  if (!user) return <Redirect href="/(auth)/login" />;
+  const recalledItems = useMemo(
+    () => activeItems.filter((i) => recallsByItem.has(i.id)),
+    [activeItems, recallsByItem]
+  );
 
-  const hero = filtered[0] ?? null;
+  // The "eat me first" card is always the most urgent item, whatever the list's sort.
+  const hero = byUrgency[0] ?? null;
 
   const renderHero = useCallback(() => {
     if (!hero) return null;
@@ -179,7 +238,17 @@ export default function HomeScreen() {
     );
   }, [hero, soonDays, todayYmd, colors]);
 
-  const renderItem = useCallback(({ item }: { item: ItemRow }) => {
+  const renderItem = useCallback(({ item: row }: { item: ListRow }) => {
+    if (row.type === "header") {
+      return (
+        <View style={styles.groupHeader} accessibilityRole="header">
+          <Text style={{ fontSize: 16 }}>{row.icon}</Text>
+          <Text style={[styles.groupLabel, { color: colors.text }]}>{row.label}</Text>
+          <Text style={[styles.groupCount, { color: colors.textMuted }]}>{row.count}</Text>
+        </View>
+      );
+    }
+    const item = row.item;
     const band = computeFreshnessBand(item.spoil_on, soonDays, todayYmd);
     const days = daysUntilSpoil(item.spoil_on, todayYmd);
     const bg = colors.bandBg[band];
@@ -207,7 +276,10 @@ export default function HomeScreen() {
           >
             {BAND_LABEL[band]}
           </Text>
-          <Text style={[styles.itemName, { color: tx }]}>{item.name}</Text>
+          <Text style={[styles.itemName, { color: tx }]}>
+            <Text accessibilityElementsHidden importantForAccessibility="no">{itemIcon(item)} </Text>
+            {item.name}
+          </Text>
           <Text style={[styles.itemMeta, { color: tx }]}>
             {item.storage} · {item.scope === "ours" ? "Ours" : "My"}
           </Text>
@@ -221,7 +293,7 @@ export default function HomeScreen() {
     );
   }, [soonDays, todayYmd, colors]);
 
-  const listHeader = useCallback(() => (
+  const listHeaderElement = useMemo(() => (
     <>
       {/* Page header */}
       <View style={styles.header}>
@@ -239,77 +311,133 @@ export default function HomeScreen() {
         <Text style={{ fontSize: 18, opacity: 0.5 }}>✦</Text>
       </View>
 
-      {/* Stats row */}
-      <View style={styles.statsRow}>
-        {(
-          [
-            { band: "fresh" as const, label: "fresh" },
-            { band: "soon" as const, label: "use soon" },
-            { band: "overdue" as const, label: "overdue" },
-          ] as const
-        ).map(({ band, label }) => (
-          <View
-            key={band}
-            style={[
-              styles.statCard,
-              { backgroundColor: colors.bandBg[band] },
-            ]}
+      {/* Search bar */}
+      <View style={[styles.searchBar, { backgroundColor: colors.faint }]}>
+        <Text style={{ fontSize: 15, opacity: 0.5, color: colors.textMuted }}>⌕</Text>
+        <TextInput
+          style={[styles.searchInput, { color: colors.text }]}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search your items…"
+          placeholderTextColor={colors.textMuted}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          accessibilityLabel="Search items"
+        />
+        {searchQuery.length > 0 ? (
+          <Pressable
+            onPress={() => setSearchQuery("")}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
           >
-            <Text
-              style={{
-                fontSize: 30,
-                fontWeight: "700",
-                lineHeight: 30,
-                letterSpacing: -1,
-                color: colors.bandText[band],
-              }}
-            >
-              {counts[band === "fresh" ? "fresh" : band === "soon" ? "soon" : "overdue"]}
-            </Text>
-            <Text
-              style={{
-                fontSize: 9,
-                fontWeight: "700",
-                color: colors.bandText[band],
-                opacity: 0.7,
-                textTransform: "uppercase",
-                letterSpacing: 0.7,
-                marginTop: 4,
-                textAlign: "center",
-              }}
-            >
-              {label}
-            </Text>
+            <Text style={{ fontSize: 15, color: colors.textMuted }}>✕</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {!isSearching ? (
+        <>
+          {/* Stats row */}
+          <View style={styles.statsRow}>
+            {(
+              [
+                { band: "fresh" as const, label: "fresh" },
+                { band: "soon" as const, label: "use soon" },
+                { band: "overdue" as const, label: "overdue" },
+              ] as const
+            ).map(({ band, label }) => (
+              <View
+                key={band}
+                style={[
+                  styles.statCard,
+                  { backgroundColor: colors.bandBg[band] },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: 30,
+                    fontWeight: "700",
+                    lineHeight: 30,
+                    letterSpacing: -1,
+                    color: colors.bandText[band],
+                  }}
+                >
+                  {counts[band === "fresh" ? "fresh" : band === "soon" ? "soon" : "overdue"]}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 9,
+                    fontWeight: "700",
+                    color: colors.bandText[band],
+                    opacity: 0.7,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.7,
+                    marginTop: 4,
+                    textAlign: "center",
+                  }}
+                >
+                  {label}
+                </Text>
+              </View>
+            ))}
           </View>
-        ))}
-      </View>
 
-      {/* Hero card */}
-      {renderHero()}
+          {recalledItems.length > 0 ? (
+            <Pressable
+              onPress={() => router.push({ pathname: "/item/[id]", params: { id: recalledItems[0].id } })}
+              style={[styles.recallBanner, { backgroundColor: colors.bandBg.overdue }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Recall alert for ${recalledItems.map((i) => i.name).join(", ")}`}
+            >
+              <Text style={[styles.recallTitle, { color: colors.bandText.overdue }]}>
+                ⚠️ {recalledItems.length === 1 ? "Recalled product in your kitchen" : `${recalledItems.length} recalled products in your kitchen`}
+              </Text>
+              <Text style={{ color: colors.bandText.overdue, fontSize: 13, opacity: 0.8 }} numberOfLines={2}>
+                {recalledItems.map((i) => i.name).join(", ")} · Tap for details
+              </Text>
+            </Pressable>
+          ) : null}
 
-      {/* Quick actions */}
-      <View style={styles.quickActions}>
-        <Pressable
-          onPress={() => router.push("/bulk-scan")}
-          style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
-          accessibilityRole="button"
-          accessibilityLabel="Open bulk scanner"
-        >
-          <Text style={[styles.quickActionText, { color: colors.text }]}>
-            📷 Bulk scan
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push("/receipt-scan")}
-          style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
-          accessibilityRole="button"
-          accessibilityLabel="Open receipt scanner"
-        >
-          <Text style={[styles.quickActionText, { color: colors.text }]}>
-            🧾 Receipt scan
-          </Text>
-        </Pressable>
-      </View>
+          {/* Hero card */}
+          {renderHero()}
+
+          {/* Quick actions */}
+          <View style={styles.quickActions}>
+            <Pressable
+              onPress={() => router.push({ pathname: "/quick-add", params: { from: "home" } })}
+              style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Quick add a popular brand"
+            >
+              <Text style={[styles.quickActionText, { color: colors.text }]}>
+                ⚡ Quick add
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/bulk-scan")}
+              style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Open bulk scanner"
+            >
+              <Text style={[styles.quickActionText, { color: colors.text }]}>
+                📷 Bulk scan
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/receipt-scan")}
+              style={[styles.quickActionBtn, { backgroundColor: colors.faint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Open receipt scanner"
+            >
+              <Text style={[styles.quickActionText, { color: colors.text }]}>
+                🧾 Receipt scan
+              </Text>
+            </Pressable>
+          </View>
+        </>
+      ) : null}
 
       {/* Filter chips */}
       <View style={styles.chipRow}>
@@ -341,8 +469,63 @@ export default function HomeScreen() {
           );
         })}
       </View>
+
+      {/* Sort chips */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow}>
+        <Text style={[styles.sortLabel, { color: colors.textMuted }]}>Sort</Text>
+        {ITEM_SORT_OPTIONS.map(({ key, label }) => {
+          const active = sort === key;
+          return (
+            <Pressable
+              key={key}
+              onPress={() => changeSort(key)}
+              style={[styles.sortChip, { borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.primaryMuted : "transparent" }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Sort by ${label}`}
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "600", color: active ? colors.brand : colors.textMuted }}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     </>
-  ), [displayName, counts, colors, filter, renderHero]);
+  ), [displayName, counts, colors, filter, renderHero, isSearching, searchQuery, sort, changeSort, recalledItems]);
+
+  const goToKnowledgeSuggestion = useCallback((entry: ExpiryItem) => {
+    router.push({
+      pathname: "/add-item",
+      params: { scan_at: String(Date.now()), scan_name: entry.name },
+    });
+  }, []);
+
+  const listFooterElement = useMemo(() => {
+    if (!isSearching || knowledgeSuggestions.length === 0) return null;
+    return (
+      <View style={styles.suggestionsBlock}>
+        <Text style={[styles.suggestionsLabel, { color: colors.textMuted }]}>
+          Not in your list yet
+        </Text>
+        {knowledgeSuggestions.map((entry) => (
+          <Pressable
+            key={entry.name}
+            style={[styles.suggestionRow, { backgroundColor: colors.faint }]}
+            onPress={() => goToKnowledgeSuggestion(entry)}
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${entry.name}`}
+          >
+            <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14, textTransform: "capitalize" }}>
+              {entry.name}
+            </Text>
+            <Text style={{ color: colors.brand, fontSize: 13, fontWeight: "700" }}>+ Add</Text>
+          </Pressable>
+        ))}
+      </View>
+    );
+  }, [isSearching, knowledgeSuggestions, colors, goToKnowledgeSuggestion]);
+
+  if (!configured) return <Redirect href="/setup" />;
+  if (!user) return <Redirect href="/(auth)/login" />;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.bg }]}>
@@ -369,8 +552,8 @@ export default function HomeScreen() {
         </ScrollView>
       ) : (
         <FlatList
-          data={filtered}
-          keyExtractor={(item) => item.id}
+          data={listRows}
+          keyExtractor={(row) => row.key}
           refreshControl={
             <RefreshControl
               refreshing={loading}
@@ -383,13 +566,16 @@ export default function HomeScreen() {
             paddingBottom: insets.bottom + 120,
             gap: spacing.sm,
           }}
-          ListHeaderComponent={listHeader}
+          ListHeaderComponent={listHeaderElement}
           ListHeaderComponentStyle={{ marginBottom: spacing.sm }}
+          ListFooterComponent={listFooterElement}
           ListEmptyComponent={
             <Text
               style={[styles.empty, { color: colors.textMuted }]}
             >
-              Nothing here yet — add something with the + button.
+              {isSearching
+                ? `No items match "${trimmedQuery}".`
+                : "Nothing here yet — add something with the + button."}
             </Text>
           }
           renderItem={renderItem}
@@ -406,6 +592,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: spacing.lg,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: spacing.md,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    padding: 0,
+  },
+  suggestionsBlock: {
+    marginTop: spacing.md,
+    gap: 6,
+  },
+  suggestionsLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderRadius: radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   header: {
     flexDirection: "row",
@@ -429,6 +648,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
     gap: 3,
+  },
+  recallBanner: {
+    borderRadius: radius.lg,
+    padding: 16,
+    marginBottom: spacing.md,
+    gap: 4,
+  },
+  recallTitle: {
+    fontSize: 15,
+    fontWeight: "700",
   },
   heroCard: {
     borderRadius: radius.xl,
@@ -473,6 +702,7 @@ const styles = StyleSheet.create({
   },
   quickActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     marginBottom: spacing.sm,
   },
@@ -489,6 +719,41 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 7,
     marginBottom: spacing.sm,
+  },
+  sortRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: spacing.sm,
+  },
+  sortLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginRight: 2,
+  },
+  sortChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  groupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: spacing.sm,
+    paddingHorizontal: 4,
+  },
+  groupLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    flex: 1,
+  },
+  groupCount: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   chip: {
     paddingHorizontal: 17,

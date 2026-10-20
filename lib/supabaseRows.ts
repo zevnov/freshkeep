@@ -1,18 +1,18 @@
 import { parseLocalDate, toLocalDateString } from "@/lib/spoil";
-import type { ItemRow, ItemScope, ItemStatus, StoragePlace } from "@/types";
+import type { ItemNutrition, ItemRow, ItemScope, ItemStatus, StoragePlace } from "@/types";
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 const STORAGE: StoragePlace[] = ["fridge", "freezer", "pantry", "counter"];
 const STATUSES: ItemStatus[] = ["active", "consumed", "trashed"];
-const HOUSEHOLD_ROLES = ["owner", "member"] as const;
+const HOUSEHOLD_ROLES = ["owner", "admin", "member"] as const;
 export type HouseholdRole = (typeof HOUSEHOLD_ROLES)[number];
 
 /** Shape returned by PostgREST for `items` (dates often ISO strings). */
 export type ItemRowDb = {
   id: string;
   household_id: string;
-  owner_user_id: string;
+  owner_user_id: string | null;
   scope: string;
   name: string;
   storage: string;
@@ -27,6 +27,13 @@ export type ItemRowDb = {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  category: string | null;
+  icon: string | null;
+  barcode: string | null;
+  brand: string | null;
+  image_url: string | null;
+  nutrition: unknown;
+  storage_tip: string | null;
 };
 
 function isRecord(x: unknown): x is Record<string, unknown> {
@@ -71,12 +78,35 @@ function parseSpoilOn(raw: unknown): ParseResult<string> {
   }
 
   const ymd = match[1];
-  const parsed = parseLocalDate(ymd);
-  if (toLocalDateString(parsed) !== ymd) {
+  try {
+    const parsed = parseLocalDate(ymd);
+    if (toLocalDateString(parsed) !== ymd) {
+      return { ok: false, error: `invalid spoil_on date (${ymd})` };
+    }
+  } catch {
     return { ok: false, error: `invalid spoil_on date (${ymd})` };
   }
 
   return { ok: true, value: ymd };
+}
+
+/** Lenient: product columns are optional extras, so a malformed blob degrades to null rather than failing the row. */
+export function parseNutrition(raw: unknown): ItemNutrition | null {
+  if (!isRecord(raw)) return null;
+  const nutrition: ItemNutrition = {
+    basis: raw.basis === "serving" ? "serving" : "100g",
+    serving_size: typeof raw.serving_size === "string" && raw.serving_size.trim() ? raw.serving_size.trim() : null,
+    kcal: asFiniteNumber(raw.kcal),
+    protein_g: asFiniteNumber(raw.protein_g),
+    carbs_g: asFiniteNumber(raw.carbs_g),
+    fat_g: asFiniteNumber(raw.fat_g),
+  };
+  const anyValue = [nutrition.kcal, nutrition.protein_g, nutrition.carbs_g, nutrition.fat_g].some((v) => v != null);
+  return anyValue ? nutrition : null;
+}
+
+function optNonEmptyString(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v : null;
 }
 
 export function parseItemRow(raw: unknown): ParseResult<ItemRow> {
@@ -86,8 +116,8 @@ export function parseItemRow(raw: unknown): ParseResult<ItemRow> {
   if (!id.ok) return id;
   const household_id = reqString(raw, "household_id");
   if (!household_id.ok) return household_id;
-  const owner_user_id = reqString(raw, "owner_user_id");
-  if (!owner_user_id.ok) return owner_user_id;
+  // Nullable: unclaimed "ours" items store no owner (add-item's edit path sends owner_user_id: null).
+  const owner_user_id = optString(raw.owner_user_id);
   const name = reqString(raw, "name");
   if (!name.ok) return name;
 
@@ -120,7 +150,7 @@ export function parseItemRow(raw: unknown): ParseResult<ItemRow> {
     value: {
       id: id.value,
       household_id: household_id.value,
-      owner_user_id: owner_user_id.value,
+      owner_user_id,
       scope,
       name: name.value,
       storage,
@@ -135,6 +165,13 @@ export function parseItemRow(raw: unknown): ParseResult<ItemRow> {
       created_by: raw.created_by == null ? null : optString(raw.created_by),
       created_at: created_at.value,
       updated_at: updated_at.value,
+      category: optNonEmptyString(raw.category),
+      icon: optNonEmptyString(raw.icon),
+      barcode: optNonEmptyString(raw.barcode),
+      brand: optNonEmptyString(raw.brand),
+      image_url: optNonEmptyString(raw.image_url),
+      nutrition: parseNutrition(raw.nutrition),
+      storage_tip: optNonEmptyString(raw.storage_tip),
     },
   };
 }

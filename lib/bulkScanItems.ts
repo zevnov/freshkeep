@@ -1,3 +1,4 @@
+import type { ItemProductInfo } from "@/types";
 import { detectItem } from "./keywordDetect";
 
 export interface BulkQueueItem {
@@ -9,6 +10,8 @@ export interface BulkQueueItem {
   freezerDays: number | null;
   perishable: boolean;
   quantity: number;
+  /** What the barcode lookup found (nutrition, storage tip…); absent for receipt lines. */
+  product?: ItemProductInfo;
 }
 
 let idCounter = 0;

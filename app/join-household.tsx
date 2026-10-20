@@ -33,6 +33,8 @@ function joinErrorMessage(code: string | undefined): string {
       return "That code is invalid or expired.";
     case "solo_household_has_active_items":
       return "You're the only person in your current kitchen and it still has active items. Mark them as used or discarded on Home, then try again.";
+    case "owner_must_transfer":
+      return "You own your current household. Make someone else the owner on the Household tab first, then try again.";
     default:
       return "Something went wrong.";
   }
@@ -157,7 +159,7 @@ export default function JoinHouseholdScreen() {
         {/* Info Card */}
         <View style={[styles.infoCard, { backgroundColor: colors.surface }]}>
            <Text style={{ fontSize: 13, color: colors.textMuted, lineHeight: 20 }}>
-            Codes last 7 days. If you're solo, clear your list first.
+            Codes last 7 days. If you&apos;re solo, clear your list first.
           </Text>
         </View>
 

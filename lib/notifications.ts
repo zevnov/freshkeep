@@ -7,12 +7,12 @@ import { addDaysLocal, computeFreshnessBand, parseLocalDate, toLocalDateString }
 type ExpoNotifications = typeof import("expo-notifications");
 
 /**
+ * Web: `expo-notifications` has no native implementation, so all scheduling stays a silent no-op.
  * Expo Go on Android (SDK 53+): `expo-notifications` native APIs are disabled; use a dev build to test alerts.
  * @see https://docs.expo.dev/develop/development-builds/introduction/
  */
-export const nativeNotificationsSupported = !(
-  Constants.appOwnership === "expo" && Platform.OS === "android"
-);
+export const nativeNotificationsSupported =
+  Platform.OS !== "web" && !(Constants.appOwnership === "expo" && Platform.OS === "android");
 
 let notificationsModule: ExpoNotifications | null = null;
 
@@ -47,6 +47,44 @@ export async function requestExpoNotificationPermissionsAsync(): Promise<{ statu
   const N = getNotifications();
   if (!N) return null;
   return N.requestPermissionsAsync();
+}
+
+/** Expo push token for remote notifications; null on web/Expo Go, without permission, or without an EAS project id. */
+export async function getExpoPushTokenAsync(projectId: string | undefined): Promise<string | null> {
+  const N = getNotifications();
+  if (!N || !projectId) return null;
+  const { status } = await N.getPermissionsAsync();
+  if (status !== "granted") return null;
+  const token = await N.getExpoPushTokenAsync({ projectId });
+  return token.data;
+}
+
+/**
+ * Calls `onOpen` with the notification's data payload whenever the user taps a notification,
+ * including the tap that cold-launched the app (which happens before any listener exists).
+ */
+export function addNotificationTapListener(onOpen: (data: Record<string, unknown>) => void): () => void {
+  const N = getNotifications();
+  if (!N) return () => {};
+  const handled = new Set<string>();
+  const handle = (response: import("expo-notifications").NotificationResponse) => {
+    const id = response.notification.request.identifier;
+    if (handled.has(id)) return;
+    handled.add(id);
+    onOpen((response.notification.request.content.data ?? {}) as Record<string, unknown>);
+  };
+  const sub = N.addNotificationResponseReceivedListener(handle);
+  N.getLastNotificationResponseAsync()
+    .then((last) => {
+      if (!last) return;
+      handle(last);
+      // So the same tap doesn't reopen the item on every later launch.
+      return N.clearLastNotificationResponseAsync();
+    })
+    .catch(() => {
+      /* nothing to route */
+    });
+  return () => sub.remove();
 }
 
 export async function ensureNotificationChannel(): Promise<void> {
@@ -255,22 +293,35 @@ export async function rescheduleAllItems(items: ItemRow[], prefs: NotificationPr
   if (!N) return;
 
   await ensureNotificationChannel();
-  await cancelDigestNotification();
-  for (const item of items) {
-    await cancelItemNotifications(item.id);
-  }
 
-  if (!prefs.masterEnabled) return;
   const anyBand = prefs.notifySoon || prefs.notifyToday || prefs.notifyOverdue;
-  if (!anyBand) return;
+  const digestMode = prefs.masterEnabled && anyBand && prefs.notificationStyle === "digest";
+  const individualMode = prefs.masterEnabled && anyBand && prefs.notificationStyle !== "digest";
+  const active = items.filter((i) => i.status === "active");
 
-  if (prefs.notificationStyle === "digest") {
+  // Schedule what should exist first, then cancel what's now stale. Each schedule call
+  // reuses a deterministic identifier, so it overwrites any prior notification under that
+  // id rather than leaving a gap — if the task is killed partway through, items already
+  // processed keep a valid (old-or-new) notification instead of none at all.
+  if (digestMode) {
     await scheduleDigestNotification(items, prefs);
-    return;
+  } else {
+    await cancelDigestNotification();
   }
 
-  const active = items.filter((i) => i.status === "active");
-  for (const item of active) {
-    await scheduleItemNotifications(item, prefs);
+  if (individualMode) {
+    for (const item of active) {
+      await scheduleItemNotifications(item, prefs);
+    }
+  } else {
+    for (const item of active) {
+      await cancelItemNotifications(item.id);
+    }
+  }
+
+  // Items that are no longer active (consumed/trashed) never go through the loop above.
+  const activeIds = new Set(active.map((i) => i.id));
+  for (const item of items) {
+    if (!activeIds.has(item.id)) await cancelItemNotifications(item.id);
   }
 }

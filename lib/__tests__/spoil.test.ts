@@ -2,6 +2,7 @@ import {
   addDaysLocal,
   computeFreshnessBand,
   daysUntilSpoil,
+  parseLocalDate,
   spoilOnFromShelf,
   toLocalDateString,
 } from "@/lib/spoil";
@@ -10,6 +11,26 @@ describe("toLocalDateString / parse round-trip", () => {
   it("formats local calendar date", () => {
     const d = new Date(2026, 3, 4);
     expect(toLocalDateString(d)).toBe("2026-04-04");
+  });
+
+  it("parses a valid leap day", () => {
+    expect(toLocalDateString(parseLocalDate("2024-02-29"))).toBe("2024-02-29");
+  });
+
+  it("rejects an invalid month", () => {
+    expect(() => parseLocalDate("2026-13-15")).toThrow(RangeError);
+  });
+
+  it("rejects day zero", () => {
+    expect(() => parseLocalDate("2026-04-00")).toThrow(RangeError);
+  });
+
+  it("rejects impossible calendar days", () => {
+    expect(() => parseLocalDate("2026-02-30")).toThrow(RangeError);
+  });
+
+  it("rejects non-leap-year february 29", () => {
+    expect(() => parseLocalDate("2025-02-29")).toThrow(RangeError);
   });
 });
 
